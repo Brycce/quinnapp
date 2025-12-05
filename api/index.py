@@ -115,28 +115,54 @@ async def handle_end_of_call(message: dict):
     return {"status": "ok", "request_id": request_id}
 
 def extract_collected_data(message: dict) -> dict:
-    data = {}
+    """Use Groq to extract structured data from the call transcript."""
+    transcript = message.get("transcript", "")
 
-    # Try analysis.structuredData
-    analysis = message.get("analysis", {})
-    if analysis.get("structuredData"):
-        s = analysis["structuredData"]
-        data.update({
-            "name": s.get("customerName") or s.get("name"),
-            "address": s.get("address") or s.get("serviceAddress"),
-            "zip_code": s.get("zipCode") or s.get("zip"),
-            "service_type": s.get("serviceType") or s.get("service"),
-            "description": s.get("description") or s.get("problem"),
-            "urgency": s.get("urgency") or s.get("timeline"),
-        })
+    if not transcript:
+        return {"description": message.get("summary", "")}
 
-    # Try summary for basic extraction if no structured data
-    if not any(data.values()):
-        summary = message.get("summary", "")
-        # Basic extraction from summary - the dashboard can show the full transcript anyway
-        data["description"] = summary
+    try:
+        groq = OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1"
+        )
 
-    return data
+        response = groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """Extract customer info from this home service call transcript.
+Return JSON only with these fields (use null if not mentioned):
+{
+  "name": "customer's first name",
+  "service_type": "type of service needed (plumbing, electrical, hvac, roofing, etc)",
+  "zip_code": "zip code or null",
+  "address": "service address if given, or null",
+  "description": "brief summary of what they need done",
+  "urgency": "emergency, soon, flexible, or null"
+}"""
+                },
+                {"role": "user", "content": transcript}
+            ],
+            temperature=0.1,
+            max_tokens=500
+        )
+
+        result_text = response.choices[0].message.content.strip()
+
+        # Clean up markdown code blocks if present
+        if result_text.startswith("```"):
+            lines = result_text.split("\n")
+            result_text = "\n".join(lines[1:-1])
+        if result_text.startswith("json"):
+            result_text = result_text[4:].strip()
+
+        return json.loads(result_text)
+
+    except Exception as e:
+        print(f"Groq extraction error: {e}")
+        return {"description": message.get("summary", "")}
 
 # ============ SMS SERVICE ============
 async def send_sms(service_request_id: str, to_phone: str, tracking_token: str, service_type: str):
