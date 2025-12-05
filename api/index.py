@@ -141,12 +141,10 @@ def extract_collected_data(message: dict) -> dict:
 # ============ SMS SERVICE ============
 async def send_sms(service_request_id: str, to_phone: str, tracking_token: str, service_type: str):
     supabase = get_supabase()
-    base_url = os.getenv("APP_BASE_URL", "https://quinn-oimo.vercel.app")
-    tracking_url = f"{base_url}/track/{tracking_token}"
 
     message_body = (
-        f"Thanks for calling about your {service_type} request! "
-        f"We're finding contractors for you. Track your request: {tracking_url}"
+        f"Hey! This is Quinn. I've started reaching out to local contractors for your {service_type} project. "
+        f"I'll keep you updated here!"
     )
 
     try:
