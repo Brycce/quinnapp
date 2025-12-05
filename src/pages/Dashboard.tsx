@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom';
 import { useServiceRequests } from '../hooks/useServiceRequests';
+import { useAuth } from '../contexts/AuthContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
 
 function getStatusColor(status: string): string {
   switch (status) {
@@ -28,12 +30,18 @@ function formatDate(dateString: string): string {
 
 export function Dashboard() {
   const { data: requests, isLoading, error } = useServiceRequests();
+  const { signOut } = useAuth();
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">Service Requests</h1>
-        <p className="text-gray-600 mt-1">Review incoming requests and contractor matches</p>
+      <div className="mb-8 flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold">Service Requests</h1>
+          <p className="text-gray-600 mt-1">Review incoming requests and contractor matches</p>
+        </div>
+        <Button variant="outline" onClick={signOut}>
+          Sign Out
+        </Button>
       </div>
 
       {isLoading && (
