@@ -57,7 +57,7 @@ export function Dashboard() {
       {requests && requests.length > 0 && (
         <div className="space-y-4">
           {requests.map((request) => (
-            <Link key={request.id} to={`/requests/${request.id}`}>
+            <Link key={request.id} to={`/admin/requests/${request.id}`}>
               <Card className="hover:shadow-md transition-shadow cursor-pointer">
                 <CardContent className="py-4">
                   <div className="flex items-center justify-between">

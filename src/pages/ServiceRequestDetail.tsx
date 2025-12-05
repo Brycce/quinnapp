@@ -61,7 +61,7 @@ export function ServiceRequestDetail() {
   return (
     <div className="container mx-auto p-6 max-w-6xl space-y-6">
       {/* Back button */}
-      <Link to="/" className="text-blue-600 hover:underline text-sm">
+      <Link to="/admin" className="text-blue-600 hover:underline text-sm">
         &larr; Back to all requests
       </Link>
 
