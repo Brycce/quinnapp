@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Frontend - Unmute web UI
+  frontend:
+    image: ghcr.io/kyutai-labs/unmute-frontend:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=ws://localhost:8765
+    depends_on:
+      - backend
+
+  # Backend - Orchestrates STT, LLM, TTS
+  backend:
+    image: ghcr.io/kyutai-labs/unmute-backend:latest
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./voices.yaml:/app/voices.yaml:ro
+      - ./system_prompt.py:/app/system_prompt.py:ro
+    environment:
+      # LLM Configuration - Use OpenAI, Anthropic, or local LLM
+      - KYUTAI_LLM_URL=${LLM_URL:-https://api.openai.com/v1}
+      - KYUTAI_LLM_MODEL=${LLM_MODEL:-gpt-4}
+      - KYUTAI_LLM_API_KEY=${LLM_API_KEY}
+
+      # STT/TTS Service URLs (using local services below)
+      - KYUTAI_STT_URL=http://stt:8000
+      - KYUTAI_TTS_URL=http://tts:8000
+
+      # Optional: Hugging Face token for gated models
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
+    depends_on:
+      - stt
+      - tts
+
+  # Speech-to-Text Service
+  stt:
+    image: ghcr.io/kyutai-labs/unmute-stt:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+
+  # Text-to-Speech Service
+  tts:
+    image: ghcr.io/kyutai-labs/unmute-tts:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
