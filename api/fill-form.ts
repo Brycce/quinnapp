@@ -1,10 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { Stagehand } from "@browserbasehq/stagehand";
-import { createGroq } from "@ai-sdk/groq";
-import { AISdkClient } from "@browserbasehq/stagehand";
 
 export const config = {
-  maxDuration: 120, // 2 minutes for form filling
+  maxDuration: 120,
 };
 
 interface FormFillRequest {
@@ -21,17 +18,16 @@ interface FormFillRequest {
   };
 }
 
-interface FormFillResult {
-  success: boolean;
-  businessId: string;
-  message: string;
-  formUrl?: string;
-}
-
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
+  // Quick test to see if function loads
+  if (req.method === "GET") {
+    res.status(200).json({ status: "ok", message: "fill-form endpoint is working" });
+    return;
+  }
+
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -45,9 +41,11 @@ export default async function handler(
     return;
   }
 
-  let stagehand: Stagehand | null = null;
-
   try {
+    // Dynamically import to avoid bundling issues
+    const { Stagehand, AISdkClient } = await import("@browserbasehq/stagehand");
+    const { createGroq } = await import("@ai-sdk/groq");
+
     // Create Groq client for Stagehand
     const groqProvider = createGroq({
       apiKey: process.env.GROQ_API_KEY,
@@ -58,7 +56,7 @@ export default async function handler(
     });
 
     // Initialize Stagehand with Browserbase
-    stagehand = new Stagehand({
+    const stagehand = new Stagehand({
       env: "BROWSERBASE",
       apiKey: process.env.BROWSERBASE_API_KEY,
       projectId: process.env.BROWSERBASE_PROJECT_ID,
@@ -92,7 +90,7 @@ export default async function handler(
         success: false,
         businessId,
         message: "No contact form found on website",
-      } as FormFillResult);
+      });
       return;
     }
 
@@ -136,21 +134,15 @@ Skip any fields that don't apply or are optional and not listed above.`,
       businessId,
       message: `Form submitted successfully to ${businessName}`,
       formUrl: currentUrl,
-    } as FormFillResult);
+    });
 
   } catch (error: any) {
-    if (stagehand) {
-      try {
-        await stagehand.close();
-      } catch {}
-    }
-
     console.error("Form fill error:", error);
-
     res.status(200).json({
       success: false,
       businessId,
       message: error.message || "Form filling failed",
-    } as FormFillResult);
+      stack: error.stack,
+    });
   }
 }
