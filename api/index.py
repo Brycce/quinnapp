@@ -6,7 +6,7 @@ import secrets
 import string
 import httpx
 from datetime import datetime
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 from twilio.rest import Client as TwilioClient
@@ -213,6 +213,143 @@ Keep it under 100 words. Be friendly but professional. Don't include subject lin
         return f"Hi,\n\nI have a customer looking for {service_type} help. They need {description}.\n\nAre you available to provide a quote?\n\nThanks!"
 
 # ============ SMS SERVICE ============
+@app.post("/webhook/twilio")
+async def twilio_incoming_sms(request: Request):
+    """Handle incoming SMS from Twilio."""
+    form_data = await request.form()
+    from_phone = form_data.get("From")
+    to_phone = form_data.get("To")
+    message_body = form_data.get("Body", "").strip()
+    twilio_sid = form_data.get("MessageSid")
+
+    supabase = get_supabase()
+
+    # Find the most recent service request for this phone number
+    result = supabase.table("service_requests").select("*").eq(
+        "caller_phone", from_phone
+    ).order("created_at", desc=True).limit(1).execute()
+
+    if not result.data:
+        # No service request found - send a helpful response
+        response_text = "Hi! I don't have a record of your request. Please call our number to start a new service request."
+    else:
+        service_request = result.data[0]
+        request_id = service_request["id"]
+
+        # Store incoming message
+        supabase.table("sms_messages").insert({
+            "service_request_id": request_id,
+            "from_phone": from_phone,
+            "to_phone": to_phone,
+            "message_body": message_body,
+            "twilio_sid": twilio_sid,
+            "direction": "inbound",
+            "status": "received"
+        }).execute()
+
+        # Get conversation history
+        history = supabase.table("sms_messages").select("*").eq(
+            "service_request_id", request_id
+        ).order("created_at").execute()
+
+        # Generate context-aware response
+        response_text = generate_sms_response(service_request, history.data, message_body)
+
+        # Send response
+        await send_sms_reply(request_id, from_phone, response_text)
+
+    # Return TwiML response
+    twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+    return Response(content=twiml, media_type="application/xml")
+
+def generate_sms_response(service_request: dict, history: list, user_message: str) -> str:
+    """Generate a context-aware SMS response using Groq."""
+    try:
+        groq = OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1"
+        )
+
+        # Build context from service request
+        context = f"""Service Request Context:
+- Customer: {service_request.get('caller_name', 'Unknown')}
+- Service Type: {service_request.get('service_type', 'home service')}
+- Description: {service_request.get('description', 'Not specified')}
+- Location: {service_request.get('caller_address') or service_request.get('zip_code', 'Not specified')}
+- Timeline: {service_request.get('timeline', 'Flexible')}
+- Status: {service_request.get('status', 'pending')}
+- Contractors Found: {service_request.get('business_discovery_status', 'pending')}"""
+
+        # Build conversation history
+        conv_history = ""
+        for msg in history[-10:]:  # Last 10 messages
+            direction = "Customer" if msg.get("direction") == "inbound" else "Quinn"
+            conv_history += f"{direction}: {msg.get('message_body', '')}\n"
+
+        prompt = f"""{context}
+
+Recent Conversation:
+{conv_history}
+
+Customer's new message: {user_message}
+
+Respond as Quinn, the friendly home services assistant. Keep responses brief (under 160 characters if possible for SMS).
+If they're adding info, acknowledge it and confirm you've noted it.
+If asking about status, give a brief update.
+If unclear, ask a clarifying question."""
+
+        response = groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are Quinn, a friendly SMS assistant helping homeowners with service requests. Be concise and helpful."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=100
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        print(f"SMS response generation error: {e}")
+        return "Thanks for your message! I've noted it. Reply anytime if you have questions."
+
+async def send_sms_reply(service_request_id: str, to_phone: str, message_body: str):
+    """Send an SMS reply."""
+    supabase = get_supabase()
+
+    try:
+        client = TwilioClient(
+            os.getenv("TWILIO_ACCOUNT_SID"),
+            os.getenv("TWILIO_AUTH_TOKEN")
+        )
+        message = client.messages.create(
+            body=message_body,
+            from_=os.getenv("TWILIO_PHONE_NUMBER"),
+            to=to_phone
+        )
+
+        supabase.table("sms_messages").insert({
+            "service_request_id": service_request_id,
+            "from_phone": os.getenv("TWILIO_PHONE_NUMBER"),
+            "to_phone": to_phone,
+            "message_body": message_body,
+            "twilio_sid": message.sid,
+            "direction": "outbound",
+            "status": "sent"
+        }).execute()
+
+    except Exception as e:
+        print(f"SMS reply error: {e}")
+        supabase.table("sms_messages").insert({
+            "service_request_id": service_request_id,
+            "to_phone": to_phone,
+            "message_body": message_body,
+            "direction": "outbound",
+            "status": "failed",
+            "error_message": str(e)
+        }).execute()
+
 async def send_sms(service_request_id: str, to_phone: str, tracking_token: str, service_type: str):
     supabase = get_supabase()
 
@@ -234,9 +371,11 @@ async def send_sms(service_request_id: str, to_phone: str, tracking_token: str, 
 
         supabase.table("sms_messages").insert({
             "service_request_id": service_request_id,
+            "from_phone": os.getenv("TWILIO_PHONE_NUMBER"),
             "to_phone": to_phone,
             "message_body": message_body,
             "twilio_sid": message.sid,
+            "direction": "outbound",
             "status": "sent"
         }).execute()
 
@@ -249,6 +388,7 @@ async def send_sms(service_request_id: str, to_phone: str, tracking_token: str, 
             "service_request_id": service_request_id,
             "to_phone": to_phone,
             "message_body": message_body,
+            "direction": "outbound",
             "status": "failed",
             "error_message": str(e)
         }).execute()
