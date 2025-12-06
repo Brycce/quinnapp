@@ -627,6 +627,99 @@ async def extract_contacts(request_id: str):
         "message": f"Processed batch. {remaining.count or 0} remaining."
     }
 
+@app.post("/api/service-requests/{request_id}/submit-forms")
+async def submit_forms(request_id: str):
+    """Trigger form submission for businesses without emails (batch of 3)."""
+    supabase = get_supabase()
+
+    # Get service request details
+    req_result = supabase.table("service_requests").select("*").eq("id", request_id).single().execute()
+    if not req_result.data:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    service_request = req_result.data
+
+    # Get businesses without emails that have websites and haven't had form submission attempted
+    pending = supabase.table("discovered_businesses").select("*").eq(
+        "service_request_id", request_id
+    ).is_("email", "null").not_.is_("website", "null").eq(
+        "form_submission_status", "pending"
+    ).limit(3).execute()
+
+    if not pending.data:
+        return {"status": "done", "message": "No pending businesses for form submission"}
+
+    results = []
+    api_base = os.getenv("VERCEL_URL", "https://quinn-oimo.vercel.app")
+    if not api_base.startswith("http"):
+        api_base = f"https://{api_base}"
+
+    for business in pending.data:
+        try:
+            # Mark as in progress
+            supabase.table("discovered_businesses").update({
+                "form_submission_status": "in_progress",
+                "form_submission_attempted_at": datetime.utcnow().isoformat()
+            }).eq("id", business["id"]).execute()
+
+            # Call the form filling endpoint
+            async with httpx.AsyncClient(timeout=130.0) as client:
+                response = await client.post(
+                    f"{api_base}/api/fill-form",
+                    json={
+                        "businessId": business["id"],
+                        "businessName": business["business_name"],
+                        "website": business["website"],
+                        "serviceRequest": {
+                            "customerName": service_request.get("caller_name", "Customer"),
+                            "serviceType": service_request.get("service_type", "home service"),
+                            "description": service_request.get("description", ""),
+                            "location": service_request.get("caller_address") or service_request.get("zip_code", ""),
+                            "timeline": service_request.get("timeline", "Flexible"),
+                        }
+                    }
+                )
+                result = response.json()
+
+            # Update status based on result
+            supabase.table("discovered_businesses").update({
+                "form_submission_status": "completed" if result.get("success") else "failed",
+                "form_submission_result": result,
+                "contact_form_url": result.get("formUrl")
+            }).eq("id", business["id"]).execute()
+
+            results.append({
+                "business": business["business_name"],
+                "success": result.get("success", False),
+                "message": result.get("message", "")
+            })
+
+        except Exception as e:
+            supabase.table("discovered_businesses").update({
+                "form_submission_status": "failed",
+                "form_submission_result": {"error": str(e)}
+            }).eq("id", business["id"]).execute()
+
+            results.append({
+                "business": business["business_name"],
+                "success": False,
+                "message": str(e)
+            })
+
+    # Check remaining
+    remaining = supabase.table("discovered_businesses").select("id", count="exact").eq(
+        "service_request_id", request_id
+    ).is_("email", "null").not_.is_("website", "null").eq(
+        "form_submission_status", "pending"
+    ).execute()
+
+    return {
+        "status": "ok",
+        "processed": len(results),
+        "remaining": remaining.count or 0,
+        "results": results
+    }
+
 @app.get("/api/track/{token}")
 async def get_tracking_info(token: str):
     supabase = get_supabase()

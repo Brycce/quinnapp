@@ -10,9 +10,17 @@
     {
       "src": "api/index.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "api/fill-form.ts",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
+    {
+      "src": "/api/fill-form",
+      "dest": "api/fill-form.ts"
+    },
     {
       "src": "/webhook/(.*)",
       "dest": "api/index.py"
