@@ -50,7 +50,7 @@ module.exports = async function handler(req, res) {
       projectId: process.env.BROWSERBASE_PROJECT_ID,
       llmClient: groqClient,
       enableCaching: true,
-      verbose: 1,
+      verbose: 0, // Disable verbose logging to avoid pino-pretty issues
     });
 
     await stagehand.init();
