@@ -61,17 +61,13 @@ module.exports = async function handler(req, res) {
     await page.goto(website, { waitUntil: "domcontentloaded", timeout: 30000 });
 
     // Try to find and navigate to contact page
-    await stagehand.act({
-      action: "Look for and click a 'Contact', 'Contact Us', 'Get a Quote', 'Request Quote', or 'Get Estimate' link or button. If none found, that's okay.",
-    });
+    await stagehand.act("Look for and click a 'Contact', 'Contact Us', 'Get a Quote', 'Request Quote', or 'Get Estimate' link or button. If none found, that's okay.");
 
     // Wait a moment for page to load
     await page.waitForTimeout(2000);
 
     // Check if there's a contact form on this page
-    const formObservation = await stagehand.observe({
-      instruction: "Find any contact form, quote request form, or inquiry form on this page. Look for input fields like name, email, phone, message, or description.",
-    });
+    const formObservation = await stagehand.observe("Find any contact form, quote request form, or inquiry form on this page. Look for input fields like name, email, phone, message, or description.");
 
     if (!formObservation || formObservation.length === 0) {
       await stagehand.close();
@@ -94,24 +90,20 @@ Timeline: ${serviceRequest.timeline}
 Please contact me to discuss this project. Thank you!`;
 
     // Fill the form using natural language
-    await stagehand.act({
-      action: `Fill out the contact form with this information:
+    await stagehand.act(`Fill out the contact form with this information:
 - Name: ${serviceRequest.customerName}
 - Email: quinn@getquinn.ai
 - Phone: ${serviceRequest.phoneCallback || "Leave blank if optional"}
 - Message/Description: ${message}
 - For any service type dropdown, select the closest match to "${serviceRequest.serviceType}"
 - Fill in location/address if there's a field: ${serviceRequest.location}
-Skip any fields that don't apply or are optional and not listed above.`,
-    });
+Skip any fields that don't apply or are optional and not listed above.`);
 
     // Get current URL before submitting
     const currentUrl = page.url();
 
     // Submit the form
-    await stagehand.act({
-      action: "Click the submit button, send button, or any button that submits the contact form. Common labels include 'Submit', 'Send', 'Send Message', 'Get Quote', 'Request Quote'.",
-    });
+    await stagehand.act("Click the submit button, send button, or any button that submits the contact form. Common labels include 'Submit', 'Send', 'Send Message', 'Get Quote', 'Request Quote'.");
 
     // Wait for submission
     await page.waitForTimeout(3000);
