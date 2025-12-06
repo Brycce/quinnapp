@@ -118,8 +118,12 @@ module.exports = async function handler(req, res) {
 
     debugLog.push({ step: "fill_form", results: fillResults, time: Date.now() });
 
-    // Take screenshot after filling
-    const screenshotBuffer = await page.screenshot();
+    // Scroll to top to capture full form in screenshot
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await new Promise(r => setTimeout(r, 500));
+
+    // Take full-page screenshot after filling
+    const screenshotBuffer = await page.screenshot({ fullPage: true });
     const screenshotBase64 = screenshotBuffer.toString('base64');
     debugLog.push({ step: "screenshot_taken", time: Date.now() });
 
