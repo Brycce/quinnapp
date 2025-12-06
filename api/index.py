@@ -482,7 +482,7 @@ async def run_contact_extraction(service_request_id: str):
         "service_request_id", service_request_id
     ).eq("contact_extraction_status", "pending").not_.is_("website", "null").execute()
 
-    for business in result.data[:10]:  # Limit to first 10 to avoid timeout
+    for business in result.data[:5]:  # Limit to 5 per batch to avoid Vercel timeout
         business_id = business["id"]
         website = business["website"]
 
@@ -593,6 +593,39 @@ async def retry_discovery(request_id: str):
     await run_business_discovery(request_id, service_type, location)
 
     return {"status": "ok", "message": "Discovery restarted"}
+
+@app.post("/api/service-requests/{request_id}/extract-contacts")
+async def extract_contacts(request_id: str):
+    """Process contact extraction for pending businesses (batch of 5)."""
+    supabase = get_supabase()
+
+    # Verify request exists
+    result = supabase.table("service_requests").select("id").eq("id", request_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Get pending businesses with websites
+    pending = supabase.table("discovered_businesses").select("id, business_name").eq(
+        "service_request_id", request_id
+    ).eq("contact_extraction_status", "pending").not_.is_("website", "null").execute()
+
+    if not pending.data:
+        return {"status": "done", "message": "No pending businesses to process"}
+
+    # Process this batch
+    await run_contact_extraction(request_id)
+
+    # Check remaining
+    remaining = supabase.table("discovered_businesses").select("id", count="exact").eq(
+        "service_request_id", request_id
+    ).eq("contact_extraction_status", "pending").not_.is_("website", "null").execute()
+
+    return {
+        "status": "ok",
+        "processed": min(5, len(pending.data)),
+        "remaining": remaining.count or 0,
+        "message": f"Processed batch. {remaining.count or 0} remaining."
+    }
 
 @app.get("/api/track/{token}")
 async def get_tracking_info(token: str):
