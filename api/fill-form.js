@@ -95,25 +95,28 @@ module.exports = async function handler(req, res) {
     }
 
     // Compose the message to send
-    const message = `Hi, my name is ${serviceRequest.customerName}. I'm looking for help with ${serviceRequest.serviceType}.
+    const message = `Hi, my name is ${serviceRequest.customerName}. I'm looking for help with ${serviceRequest.serviceType}. ${serviceRequest.description} Location: ${serviceRequest.location}. Timeline: ${serviceRequest.timeline}. Please contact me to discuss. Thank you!`;
 
-${serviceRequest.description}
+    // Fill the form field by field (act() does ONE action at a time)
+    const fillResults = [];
 
-Location: ${serviceRequest.location}
-Timeline: ${serviceRequest.timeline}
+    // Fill name field
+    const nameResult = await stagehand.act(`Type "${serviceRequest.customerName}" into the name field or first name field of the contact form`);
+    fillResults.push({ field: "name", result: nameResult });
 
-Please contact me to discuss this project. Thank you!`;
+    // Fill email field
+    const emailResult = await stagehand.act(`Type "quinn@getquinn.ai" into the email field of the contact form`);
+    fillResults.push({ field: "email", result: emailResult });
 
-    // Fill the form using natural language
-    const fillResult = await stagehand.act(`Fill out the contact form with this information:
-- Name: ${serviceRequest.customerName}
-- Email: quinn@getquinn.ai
-- Phone: ${serviceRequest.phoneCallback || "Leave blank if optional"}
-- Message/Description: ${message}
-- For any service type dropdown, select the closest match to "${serviceRequest.serviceType}"
-- Fill in location/address if there's a field: ${serviceRequest.location}
-Skip any fields that don't apply or are optional and not listed above.`);
-    debugLog.push({ step: "fill_form", result: fillResult, time: Date.now() });
+    // Fill phone field if available
+    const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into the phone field of the contact form. If no phone field exists, skip this.`);
+    fillResults.push({ field: "phone", result: phoneResult });
+
+    // Fill message/description field
+    const messageResult = await stagehand.act(`Type the following message into the message, comments, description, or textarea field of the contact form: "${message}"`);
+    fillResults.push({ field: "message", result: messageResult });
+
+    debugLog.push({ step: "fill_form", results: fillResults, time: Date.now() });
 
     // Take screenshot after filling
     const screenshotBuffer = await page.screenshot();
