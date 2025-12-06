@@ -12,14 +12,14 @@
       "use": "@vercel/python"
     },
     {
-      "src": "api/fill-form.ts",
+      "src": "api/fill-form.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/fill-form",
-      "dest": "api/fill-form.ts"
+      "dest": "api/fill-form.js"
     },
     {
       "src": "/webhook/(.*)",
