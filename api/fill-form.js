@@ -43,38 +43,52 @@ module.exports = async function handler(req, res) {
       model: groqProvider("openai/gpt-oss-120b"),
     });
 
+    // Debug log
+    const debugLog = [];
+    debugLog.push({ step: "init", time: Date.now() });
+
     // Initialize Stagehand with Browserbase
     stagehand = new Stagehand({
       env: "BROWSERBASE",
       apiKey: process.env.BROWSERBASE_API_KEY,
       projectId: process.env.BROWSERBASE_PROJECT_ID,
       llmClient: groqClient,
-      enableCaching: true,
-      verbose: 0,
-      disablePino: true, // Required for serverless environments
+      enableCaching: false, // Disable caching for debugging
+      verbose: 2, // Enable verbose logging
+      disablePino: true, // Required for serverless
     });
 
     await stagehand.init();
+    debugLog.push({ step: "stagehand_initialized", time: Date.now() });
+
     const page = stagehand.context.pages()[0];
 
     // Navigate to the business website
     await page.goto(website, { waitUntil: "domcontentloaded", timeout: 30000 });
+    debugLog.push({ step: "navigated_to_website", url: page.url(), time: Date.now() });
 
     // Try to find and navigate to contact page
-    await stagehand.act("Look for and click a 'Contact', 'Contact Us', 'Get a Quote', 'Request Quote', or 'Get Estimate' link or button. If none found, that's okay.");
+    const navResult = await stagehand.act("Look for and click a 'Contact', 'Contact Us', 'Get a Quote', 'Request Quote', or 'Get Estimate' link or button. If none found, that's okay.");
+    debugLog.push({ step: "nav_to_contact", result: navResult, time: Date.now() });
 
     // Wait a moment for page to load
     await new Promise(r => setTimeout(r, 2000));
+    debugLog.push({ step: "after_wait", url: page.url(), time: Date.now() });
 
     // Check if there's a contact form on this page
     const formObservation = await stagehand.observe("Find any contact form, quote request form, or inquiry form on this page. Look for input fields like name, email, phone, message, or description.");
+    debugLog.push({ step: "observe_form", found: formObservation?.length || 0, observation: formObservation, time: Date.now() });
 
     if (!formObservation || formObservation.length === 0) {
+      // Take screenshot before closing
+      const screenshot = await page.screenshot({ encoding: 'base64' });
       await stagehand.close();
       res.status(200).json({
         success: false,
         businessId,
         message: "No contact form found on website",
+        debug: debugLog,
+        screenshot: screenshot.substring(0, 500) + "...", // Truncate for response
       });
       return;
     }
@@ -90,7 +104,7 @@ Timeline: ${serviceRequest.timeline}
 Please contact me to discuss this project. Thank you!`;
 
     // Fill the form using natural language
-    await stagehand.act(`Fill out the contact form with this information:
+    const fillResult = await stagehand.act(`Fill out the contact form with this information:
 - Name: ${serviceRequest.customerName}
 - Email: quinn@getquinn.ai
 - Phone: ${serviceRequest.phoneCallback || "Leave blank if optional"}
@@ -98,6 +112,11 @@ Please contact me to discuss this project. Thank you!`;
 - For any service type dropdown, select the closest match to "${serviceRequest.serviceType}"
 - Fill in location/address if there's a field: ${serviceRequest.location}
 Skip any fields that don't apply or are optional and not listed above.`);
+    debugLog.push({ step: "fill_form", result: fillResult, time: Date.now() });
+
+    // Take screenshot after filling
+    const screenshot = await page.screenshot({ encoding: 'base64' });
+    debugLog.push({ step: "screenshot_taken", time: Date.now() });
 
     // Get current URL
     const currentUrl = page.url();
@@ -111,8 +130,10 @@ Skip any fields that don't apply or are optional and not listed above.`);
     res.status(200).json({
       success: true,
       businessId,
-      message: `Form submitted successfully to ${businessName}`,
+      message: `Form filled successfully for ${businessName}`,
       formUrl: currentUrl,
+      debug: debugLog,
+      screenshot: screenshot.substring(0, 100) + "... (base64 truncated)",
     });
 
   } catch (error) {
