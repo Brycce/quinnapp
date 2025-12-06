@@ -235,6 +235,11 @@ async def run_business_discovery(service_request_id: str, service_type: str, loc
 
         search_query = f"{search_term} near {location}"
 
+        # Detect region: Canadian postal codes start with a letter (e.g., V8T 4G8)
+        region = "us"
+        if location and len(location) >= 1 and location[0].isalpha():
+            region = "ca"
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
                 "https://local-business-data.p.rapidapi.com/search",
@@ -242,7 +247,7 @@ async def run_business_discovery(service_request_id: str, service_type: str, loc
                     "X-RapidAPI-Key": os.getenv("RAPIDAPI_KEY"),
                     "X-RapidAPI-Host": "local-business-data.p.rapidapi.com"
                 },
-                params={"query": search_query, "limit": 30, "language": "en", "region": "us"}
+                params={"query": search_query, "limit": 30, "language": "en", "region": region}
             )
             response.raise_for_status()
             data = response.json()
