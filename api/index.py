@@ -358,6 +358,28 @@ async def list_businesses(request_id: str):
     ).order("rating", desc=True).execute()
     return result.data
 
+@app.post("/api/service-requests/{request_id}/retry-discovery")
+async def retry_discovery(request_id: str):
+    supabase = get_supabase()
+    result = supabase.table("service_requests").select("*").eq("id", request_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    request_data = result.data
+    location = request_data.get("zip_code") or request_data.get("caller_address")
+    service_type = request_data.get("service_type", "home services")
+
+    if not location:
+        raise HTTPException(status_code=400, detail="No location data available")
+
+    # Clear any existing businesses for this request
+    supabase.table("discovered_businesses").delete().eq("service_request_id", request_id).execute()
+
+    # Run discovery again
+    await run_business_discovery(request_id, service_type, location)
+
+    return {"status": "ok", "message": "Discovery restarted"}
+
 @app.get("/api/track/{token}")
 async def get_tracking_info(token: str):
     supabase = get_supabase()
