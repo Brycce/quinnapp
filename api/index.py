@@ -100,6 +100,10 @@ async def handle_end_of_call(message: dict):
         "business_discovery_status": "pending"
     }
 
+    # Generate outreach email template
+    email_template = generate_outreach_email(collected_data)
+    service_request["outreach_email_template"] = email_template
+
     result = supabase.table("service_requests").insert(service_request).execute()
     request_id = result.data[0]["id"]
 
@@ -163,6 +167,50 @@ Return JSON only with these fields (use null if not mentioned):
     except Exception as e:
         print(f"Groq extraction error: {e}")
         return {"description": message.get("summary", "")}
+
+def generate_outreach_email(collected_data: dict) -> str:
+    """Generate a brief outreach email template using Groq."""
+    try:
+        groq = OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1"
+        )
+
+        name = collected_data.get("name", "A customer")
+        service_type = collected_data.get("service_type", "home service")
+        description = collected_data.get("description", "")
+        location = collected_data.get("address") or collected_data.get("zip_code", "")
+        timeline = collected_data.get("urgency") or collected_data.get("timeline", "flexible")
+
+        prompt = f"""Write a brief, professional email to a contractor asking if they're available for a job.
+
+Customer: {name}
+Service needed: {service_type}
+Details: {description}
+Location: {location}
+Timeline: {timeline}
+
+Keep it under 100 words. Be friendly but professional. Don't include subject line. Just the body."""
+
+        response = groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You write brief, professional outreach emails for home service requests."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=200
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        print(f"Email generation error: {e}")
+        # Return a basic template as fallback
+        name = collected_data.get("name", "A customer")
+        service_type = collected_data.get("service_type", "home service")
+        description = collected_data.get("description", "work done")
+        return f"Hi,\n\nI have a customer looking for {service_type} help. They need {description}.\n\nAre you available to provide a quote?\n\nThanks!"
 
 # ============ SMS SERVICE ============
 async def send_sms(service_request_id: str, to_phone: str, tracking_token: str, service_type: str):

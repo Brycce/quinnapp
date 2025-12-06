@@ -12,6 +12,7 @@ export interface ServiceRequest {
   status: string;
   tracking_token: string | null;
   business_discovery_status: string;
+  outreach_email_template: string | null;
   created_at: string;
   updated_at: string;
 }

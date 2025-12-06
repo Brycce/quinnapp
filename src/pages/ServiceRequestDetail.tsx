@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useServiceRequest } from '../hooks/useServiceRequests';
 import { useBusinesses } from '../hooks/useBusinesses';
@@ -41,6 +42,15 @@ export function ServiceRequestDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: request, isLoading: requestLoading } = useServiceRequest(id);
   const { data: businesses, isLoading: bizLoading } = useBusinesses(id);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyEmail = async () => {
+    if (request?.outreach_email_template) {
+      await navigator.clipboard.writeText(request.outreach_email_template);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   if (requestLoading) {
     return (
@@ -109,6 +119,29 @@ export function ServiceRequestDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Outreach Email Template */}
+      {request.outreach_email_template && (
+        <Card>
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <CardTitle>Outreach Email</CardTitle>
+              <Button
+                onClick={handleCopyEmail}
+                variant={copied ? "default" : "outline"}
+                size="sm"
+              >
+                {copied ? "Copied!" : "Copy"}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <pre className="whitespace-pre-wrap text-sm bg-gray-50 p-4 rounded-lg font-sans">
+              {request.outreach_email_template}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Businesses Table */}
       <Card>
