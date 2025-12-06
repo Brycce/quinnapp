@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
     await stagehand.act("Look for and click a 'Contact', 'Contact Us', 'Get a Quote', 'Request Quote', or 'Get Estimate' link or button. If none found, that's okay.");
 
     // Wait a moment for page to load
-    await page.waitForTimeout(2000);
+    await new Promise(r => setTimeout(r, 2000));
 
     // Check if there's a contact form on this page
     const formObservation = await stagehand.observe("Find any contact form, quote request form, or inquiry form on this page. Look for input fields like name, email, phone, message, or description.");
@@ -106,7 +106,7 @@ Skip any fields that don't apply or are optional and not listed above.`);
     await stagehand.act("Click the submit button, send button, or any button that submits the contact form. Common labels include 'Submit', 'Send', 'Send Message', 'Get Quote', 'Request Quote'.");
 
     // Wait for submission
-    await page.waitForTimeout(3000);
+    await new Promise(r => setTimeout(r, 3000));
 
     await stagehand.close();
 
