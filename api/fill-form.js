@@ -99,14 +99,12 @@ Please contact me to discuss this project. Thank you!`;
 - Fill in location/address if there's a field: ${serviceRequest.location}
 Skip any fields that don't apply or are optional and not listed above.`);
 
-    // Get current URL before submitting
+    // Get current URL
     const currentUrl = page.url();
 
-    // Submit the form
-    await stagehand.act("Click the submit button, send button, or any button that submits the contact form. Common labels include 'Submit', 'Send', 'Send Message', 'Get Quote', 'Request Quote'.");
-
-    // Wait for submission
-    await new Promise(r => setTimeout(r, 3000));
+    // TODO: Uncomment to actually submit forms in production
+    // await stagehand.act("Click the submit button, send button, or any button that submits the contact form.");
+    // await new Promise(r => setTimeout(r, 3000));
 
     await stagehand.close();
 
