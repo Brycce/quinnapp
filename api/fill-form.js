@@ -40,7 +40,7 @@ module.exports = async function handler(req, res) {
     });
 
     const groqClient = new AISdkClient({
-      model: groqProvider("llama-3.3-70b-versatile"),
+      model: groqProvider("meta-llama/llama-4-scout-17b-16e-instruct"),
     });
 
     // Initialize Stagehand with Browserbase
