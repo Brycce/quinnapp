@@ -487,19 +487,40 @@ async def run_contact_extraction(service_request_id: str):
         website = business["website"]
 
         try:
-            # Scrape with Jina Reader
+            # Scrape with Jina Reader - try main page and contact page
+            content = ""
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # Try main page
                 response = await client.get(f"https://r.jina.ai/{website}")
-                if response.status_code != 200:
-                    continue
-                content = response.text[:8000]
+                if response.status_code == 200:
+                    content = response.text[:6000]
 
-            # Extract with Groq
+                # Also try contact page for emails
+                for contact_path in ["/contact", "/contact-us", "/about", "/about-us"]:
+                    try:
+                        contact_url = website.rstrip("/") + contact_path
+                        contact_response = await client.get(f"https://r.jina.ai/{contact_url}")
+                        if contact_response.status_code == 200:
+                            content += "\n\n--- CONTACT PAGE ---\n" + contact_response.text[:4000]
+                            break
+                    except:
+                        continue
+
+            if not content:
+                continue
+
+            # Extract with Groq - improved prompt for email extraction
             extraction = groq.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[
-                    {"role": "system", "content": "Extract contact info, return JSON only: {phone, email, address}"},
-                    {"role": "user", "content": f"Extract contacts from:\n{content}"}
+                    {"role": "system", "content": """Extract contact info from this website content. Look carefully for:
+- Email addresses (check mailto: links, contact forms mentions, info@, contact@, etc.)
+- Phone numbers
+- Physical address
+
+Return JSON only: {"phone": "...", "email": "...", "address": "..."}
+Use null for any field not found. Be thorough in finding emails."""},
+                    {"role": "user", "content": f"Extract all contact info from:\n{content}"}
                 ],
                 temperature=0.1,
                 max_tokens=300
