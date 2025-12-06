@@ -1,9 +1,9 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Stagehand } from "@browserbasehq/stagehand";
 import { createGroq } from "@ai-sdk/groq";
 import { AISdkClient } from "@browserbasehq/stagehand";
 
 export const config = {
-  runtime: "nodejs",
   maxDuration: 120, // 2 minutes for form filling
 };
 
@@ -26,25 +26,23 @@ interface FormFillResult {
   businessId: string;
   message: string;
   formUrl?: string;
-  screenshotUrl?: string;
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+): Promise<void> {
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    });
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
-  const body: FormFillRequest = await req.json();
+  const body = req.body as FormFillRequest;
   const { businessId, businessName, website, serviceRequest } = body;
 
   if (!website || !serviceRequest) {
-    return new Response(
-      JSON.stringify({ error: "Missing required fields" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
+    res.status(400).json({ error: "Missing required fields" });
+    return;
   }
 
   let stagehand: Stagehand | null = null;
@@ -76,7 +74,7 @@ export default async function handler(req: Request): Promise<Response> {
     await page.goto(website, { waitUntil: "domcontentloaded", timeout: 30000 });
 
     // Try to find and navigate to contact page
-    const foundContact = await stagehand.act({
+    await stagehand.act({
       action: "Look for and click a 'Contact', 'Contact Us', 'Get a Quote', 'Request Quote', or 'Get Estimate' link or button. If none found, that's okay.",
     });
 
@@ -90,14 +88,12 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (!formObservation || formObservation.length === 0) {
       await stagehand.close();
-      return new Response(
-        JSON.stringify({
-          success: false,
-          businessId,
-          message: "No contact form found on website",
-        } as FormFillResult),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
+      res.status(200).json({
+        success: false,
+        businessId,
+        message: "No contact form found on website",
+      } as FormFillResult);
+      return;
     }
 
     // Compose the message to send
@@ -122,7 +118,7 @@ Please contact me to discuss this project. Thank you!`;
 Skip any fields that don't apply or are optional and not listed above.`,
     });
 
-    // Take a screenshot before submitting
+    // Get current URL before submitting
     const currentUrl = page.url();
 
     // Submit the form
@@ -135,15 +131,12 @@ Skip any fields that don't apply or are optional and not listed above.`,
 
     await stagehand.close();
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        businessId,
-        message: `Form submitted successfully to ${businessName}`,
-        formUrl: currentUrl,
-      } as FormFillResult),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    res.status(200).json({
+      success: true,
+      businessId,
+      message: `Form submitted successfully to ${businessName}`,
+      formUrl: currentUrl,
+    } as FormFillResult);
 
   } catch (error: any) {
     if (stagehand) {
@@ -154,13 +147,10 @@ Skip any fields that don't apply or are optional and not listed above.`,
 
     console.error("Form fill error:", error);
 
-    return new Response(
-      JSON.stringify({
-        success: false,
-        businessId,
-        message: error.message || "Form filling failed",
-      } as FormFillResult),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    res.status(200).json({
+      success: false,
+      businessId,
+      message: error.message || "Form filling failed",
+    } as FormFillResult);
   }
 }
