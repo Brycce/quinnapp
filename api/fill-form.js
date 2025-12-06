@@ -81,14 +81,15 @@ module.exports = async function handler(req, res) {
 
     if (!formObservation || formObservation.length === 0) {
       // Take screenshot before closing
-      const screenshot = await page.screenshot({ encoding: 'base64' });
+      const screenshotBuffer = await page.screenshot();
+      const screenshotBase64 = screenshotBuffer.toString('base64');
       await stagehand.close();
       res.status(200).json({
         success: false,
         businessId,
         message: "No contact form found on website",
         debug: debugLog,
-        screenshot: screenshot.substring(0, 500) + "...", // Truncate for response
+        screenshotPreview: screenshotBase64.substring(0, 200) + "...",
       });
       return;
     }
@@ -115,7 +116,8 @@ Skip any fields that don't apply or are optional and not listed above.`);
     debugLog.push({ step: "fill_form", result: fillResult, time: Date.now() });
 
     // Take screenshot after filling
-    const screenshot = await page.screenshot({ encoding: 'base64' });
+    const screenshotBuffer = await page.screenshot();
+    const screenshotBase64 = screenshotBuffer.toString('base64');
     debugLog.push({ step: "screenshot_taken", time: Date.now() });
 
     // Get current URL
@@ -133,7 +135,7 @@ Skip any fields that don't apply or are optional and not listed above.`);
       message: `Form filled successfully for ${businessName}`,
       formUrl: currentUrl,
       debug: debugLog,
-      screenshot: screenshot.substring(0, 100) + "... (base64 truncated)",
+      screenshotBase64: screenshotBase64, // Full screenshot for viewing
     });
 
   } catch (error) {
