@@ -40,7 +40,7 @@ module.exports = async function handler(req, res) {
     });
 
     const groqClient = new AISdkClient({
-      model: groqProvider("meta-llama/llama-4-scout-17b-16e-instruct"),
+      model: groqProvider("openai/gpt-oss-20b"),
     });
 
     // Initialize Stagehand with Browserbase
