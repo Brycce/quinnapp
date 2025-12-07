@@ -102,24 +102,48 @@ module.exports = async function handler(req, res) {
     // Compose the message to send
     const message = `Hi, my name is ${serviceRequest.customerName}. I'm looking for help with ${serviceRequest.serviceType}. ${serviceRequest.description} Location: ${serviceRequest.location}. Timeline: ${serviceRequest.timeline}. Please contact me to discuss. Thank you!`;
 
-    // Fill the form field by field (act() does ONE action at a time)
+    // Fill the form field by field - try each field, skip if not found
     const fillResults = [];
 
-    // Fill name field
-    const nameResult = await stagehand.act(`Type "${serviceRequest.customerName}" into the name field or first name field of the contact form`);
-    fillResults.push({ field: "name", result: nameResult });
+    // Fill name field (if exists)
+    try {
+      const nameResult = await stagehand.act(`Type "${serviceRequest.customerName}" into any name, first name, or customer name field. If no name field exists, do nothing.`);
+      fillResults.push({ field: "name", result: nameResult });
+    } catch (e) {
+      fillResults.push({ field: "name", skipped: true, error: e.message });
+    }
 
-    // Fill email field
-    const emailResult = await stagehand.act(`Type "quinn@getquinn.ai" into the email field of the contact form`);
-    fillResults.push({ field: "email", result: emailResult });
+    // Fill email field (if exists)
+    try {
+      const emailResult = await stagehand.act(`Type "quinn@getquinn.ai" into any email field. If no email field exists, do nothing.`);
+      fillResults.push({ field: "email", result: emailResult });
+    } catch (e) {
+      fillResults.push({ field: "email", skipped: true, error: e.message });
+    }
 
-    // Fill phone field if available
-    const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into the phone field of the contact form. If no phone field exists, skip this.`);
-    fillResults.push({ field: "phone", result: phoneResult });
+    // Fill phone field (if exists)
+    try {
+      const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into any phone or telephone field. If no phone field exists, do nothing.`);
+      fillResults.push({ field: "phone", result: phoneResult });
+    } catch (e) {
+      fillResults.push({ field: "phone", skipped: true, error: e.message });
+    }
 
-    // Fill message/description field
-    const messageResult = await stagehand.act(`Type the following message into the message, comments, description, or textarea field of the contact form: "${message}"`);
-    fillResults.push({ field: "message", result: messageResult });
+    // Fill address field (if exists)
+    try {
+      const addressResult = await stagehand.act(`Type "${serviceRequest.location}" into any address, street address, or location field. If no address field exists, do nothing.`);
+      fillResults.push({ field: "address", result: addressResult });
+    } catch (e) {
+      fillResults.push({ field: "address", skipped: true, error: e.message });
+    }
+
+    // Fill message/description field (if exists)
+    try {
+      const messageResult = await stagehand.act(`Type the following into any message, comments, description, notes, or textarea field: "${message}". If no such field exists, do nothing.`);
+      fillResults.push({ field: "message", result: messageResult });
+    } catch (e) {
+      fillResults.push({ field: "message", skipped: true, error: e.message });
+    }
 
     debugLog.push({ step: "fill_form", results: fillResults, time: Date.now() });
 
