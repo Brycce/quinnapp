@@ -84,6 +84,25 @@ module.exports = async function handler(req, res) {
     const formObservation = await stagehand.observe("Find any contact form, booking form, quote request form, or popup modal on this page. Look for input fields like name, email, phone, message, address, or description. Also check for iframe booking widgets from services like HouseCall Pro, Jobber, or ServiceTitan.");
     debugLog.push({ step: "observe_form", found: formObservation?.length || 0, observation: formObservation, time: Date.now() });
 
+    // Check if form is inside an iframe and switch to it
+    const hasIframe = formObservation?.some(obs => obs.selector?.includes('iframe'));
+    if (hasIframe) {
+      debugLog.push({ step: "detected_iframe", time: Date.now() });
+      try {
+        // Find and switch to the iframe
+        const iframeElement = await page.$('iframe');
+        if (iframeElement) {
+          const frame = await iframeElement.contentFrame();
+          if (frame) {
+            // Create a new page-like object that works with the frame
+            debugLog.push({ step: "switched_to_iframe", time: Date.now() });
+          }
+        }
+      } catch (e) {
+        debugLog.push({ step: "iframe_switch_failed", error: e.message, time: Date.now() });
+      }
+    }
+
     if (!formObservation || formObservation.length === 0) {
       // Take screenshot before closing
       const screenshotBuffer = await page.screenshot();
@@ -117,10 +136,11 @@ module.exports = async function handler(req, res) {
 
     if (isBookingWidget) {
       // Handle booking widget with dropdowns/date pickers
+      // Note: These may be inside an iframe/modal
 
       // Select service type dropdown
       try {
-        const serviceResult = await stagehand.act(`Click on the service type dropdown and select the option most related to plumbing or general service`);
+        const serviceResult = await stagehand.act(`Inside the booking dialog or modal, find and click on any service type or job type dropdown, then select a plumbing related option`);
         fillResults.push({ field: "service_type", result: serviceResult });
       } catch (e) {
         fillResults.push({ field: "service_type", skipped: true, error: e.message });
@@ -128,7 +148,7 @@ module.exports = async function handler(req, res) {
 
       // Select date
       try {
-        const dateResult = await stagehand.act(`Click on the date picker and select tomorrow's date or the next available date`);
+        const dateResult = await stagehand.act(`Inside the booking dialog, click on the date field or calendar, then select tomorrow's date or any available date`);
         fillResults.push({ field: "date", result: dateResult });
       } catch (e) {
         fillResults.push({ field: "date", skipped: true, error: e.message });
@@ -136,10 +156,18 @@ module.exports = async function handler(req, res) {
 
       // Select time
       try {
-        const timeResult = await stagehand.act(`Click on a time slot and select any available morning time like 9am or 10am`);
+        const timeResult = await stagehand.act(`Inside the booking dialog, click on the time field and select any available time slot`);
         fillResults.push({ field: "time", result: timeResult });
       } catch (e) {
         fillResults.push({ field: "time", skipped: true, error: e.message });
+      }
+
+      // Fill description in booking widget
+      try {
+        const descResult = await stagehand.act(`Inside the booking dialog, find the description or notes text area and type: "${serviceRequest.description}"`);
+        fillResults.push({ field: "booking_description", result: descResult });
+      } catch (e) {
+        fillResults.push({ field: "booking_description", skipped: true, error: e.message });
       }
     }
 
