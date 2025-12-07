@@ -14,12 +14,20 @@
     {
       "src": "api/fill-form.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "api/test-captcha.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/fill-form",
       "dest": "api/fill-form.js"
+    },
+    {
+      "src": "/api/test-captcha",
+      "dest": "api/test-captcha.js"
     },
     {
       "src": "/webhook/(.*)",
