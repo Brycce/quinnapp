@@ -57,10 +57,14 @@ module.exports = async function handler(req, res) {
     const page = stagehand.context.pages()[0];
 
     // Listen for CAPTCHA solving events
+    let solvingFinished = false;
     page.on("console", (msg) => {
       const text = msg.text();
       if (text.includes("browserbase-solving")) {
         debugLog.push({ step: "captcha_event", message: text, time: Date.now() });
+        if (text.includes("browserbase-solving-finished")) {
+          solvingFinished = true;
+        }
       }
     });
 
@@ -81,17 +85,23 @@ module.exports = async function handler(req, res) {
     const clickResult = await stagehand.act("Click the reCAPTCHA checkbox that says 'I'm not a robot'");
     debugLog.push({ step: "clicked_checkbox", result: clickResult, time: Date.now() });
 
-    // Wait for CAPTCHA solving (up to 45 seconds)
+    // Wait for CAPTCHA solving (up to 60 seconds, checking every 2 seconds)
     debugLog.push({ step: "waiting_for_captcha", time: Date.now() });
-    await new Promise(r => setTimeout(r, 10000));
 
-    // Take another screenshot to see state
+    let waited = 0;
+    const maxWait = 60000;
+    while (!solvingFinished && waited < maxWait) {
+      await new Promise(r => setTimeout(r, 2000));
+      waited += 2000;
+      debugLog.push({ step: "polling", waited, solvingFinished, time: Date.now() });
+    }
+
+    debugLog.push({ step: "done_waiting", solvingFinished, totalWaited: waited, time: Date.now() });
+
+    // Take screenshot to see state
     const midScreenshot = await page.screenshot();
     const midBase64 = midScreenshot.toString('base64');
     debugLog.push({ step: "screenshot_mid", time: Date.now() });
-
-    // Wait more if needed
-    await new Promise(r => setTimeout(r, 20000));
 
     // Try to submit the form
     const submitResult = await stagehand.act("Click the Submit button to submit the form");
