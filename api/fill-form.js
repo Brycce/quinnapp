@@ -81,27 +81,16 @@ module.exports = async function handler(req, res) {
     debugLog.push({ step: "after_wait", url: page.url(), time: Date.now() });
 
     // Check if there's a contact form, modal, or booking widget on this page
-    const formObservation = await stagehand.observe("Find any contact form, booking form, quote request form, or popup modal on this page. Look for input fields like name, email, phone, message, address, or description. Also check for iframe booking widgets from services like HouseCall Pro, Jobber, or ServiceTitan.");
+    // Use iframes: true to search inside iframes (like HouseCall Pro widgets)
+    const formObservation = await stagehand.observe({
+      instruction: "Find any contact form, booking form, quote request form, or popup modal on this page. Look for input fields like name, email, phone, message, address, or description. Also check for iframe booking widgets.",
+      iframes: true
+    });
     debugLog.push({ step: "observe_form", found: formObservation?.length || 0, observation: formObservation, time: Date.now() });
 
-    // Check if form is inside an iframe and switch to it
+    // Check if form is inside an iframe
     const hasIframe = formObservation?.some(obs => obs.selector?.includes('iframe'));
-    if (hasIframe) {
-      debugLog.push({ step: "detected_iframe", time: Date.now() });
-      try {
-        // Find and switch to the iframe
-        const iframeElement = await page.$('iframe');
-        if (iframeElement) {
-          const frame = await iframeElement.contentFrame();
-          if (frame) {
-            // Create a new page-like object that works with the frame
-            debugLog.push({ step: "switched_to_iframe", time: Date.now() });
-          }
-        }
-      } catch (e) {
-        debugLog.push({ step: "iframe_switch_failed", error: e.message, time: Date.now() });
-      }
-    }
+    debugLog.push({ step: "iframe_check", hasIframe, time: Date.now() });
 
     if (!formObservation || formObservation.length === 0) {
       // Take screenshot before closing
@@ -136,11 +125,14 @@ module.exports = async function handler(req, res) {
 
     if (isBookingWidget) {
       // Handle booking widget with dropdowns/date pickers
-      // Note: These may be inside an iframe/modal
+      // Use iframes: true to interact with elements inside iframes
 
       // Select service type dropdown
       try {
-        const serviceResult = await stagehand.act(`Inside the booking dialog or modal, find and click on any service type or job type dropdown, then select a plumbing related option`);
+        const serviceResult = await stagehand.act({
+          action: "Click on any service type or job type dropdown, then select a plumbing related option",
+          iframes: true
+        });
         fillResults.push({ field: "service_type", result: serviceResult });
       } catch (e) {
         fillResults.push({ field: "service_type", skipped: true, error: e.message });
@@ -148,7 +140,10 @@ module.exports = async function handler(req, res) {
 
       // Select date
       try {
-        const dateResult = await stagehand.act(`Inside the booking dialog, click on the date field or calendar, then select tomorrow's date or any available date`);
+        const dateResult = await stagehand.act({
+          action: "Click on the date field or calendar picker, then select tomorrow's date or any available date",
+          iframes: true
+        });
         fillResults.push({ field: "date", result: dateResult });
       } catch (e) {
         fillResults.push({ field: "date", skipped: true, error: e.message });
@@ -156,7 +151,10 @@ module.exports = async function handler(req, res) {
 
       // Select time
       try {
-        const timeResult = await stagehand.act(`Inside the booking dialog, click on the time field and select any available time slot`);
+        const timeResult = await stagehand.act({
+          action: "Click on the time field or time picker and select any available time slot",
+          iframes: true
+        });
         fillResults.push({ field: "time", result: timeResult });
       } catch (e) {
         fillResults.push({ field: "time", skipped: true, error: e.message });
@@ -164,7 +162,10 @@ module.exports = async function handler(req, res) {
 
       // Fill description in booking widget
       try {
-        const descResult = await stagehand.act(`Inside the booking dialog, find the description or notes text area and type: "${serviceRequest.description}"`);
+        const descResult = await stagehand.act({
+          action: `Find the description or notes text area and type: "${serviceRequest.description}"`,
+          iframes: true
+        });
         fillResults.push({ field: "booking_description", result: descResult });
       } catch (e) {
         fillResults.push({ field: "booking_description", skipped: true, error: e.message });
@@ -172,10 +173,14 @@ module.exports = async function handler(req, res) {
     }
 
     // Standard fields - works for both form types
+    // Use iframes: true in case form is inside an iframe
 
     // Fill name field
     try {
-      const nameResult = await stagehand.act(`Type "${serviceRequest.customerName}" into the name input field`);
+      const nameResult = await stagehand.act({
+        action: `Type "${serviceRequest.customerName}" into the name input field`,
+        iframes: true
+      });
       fillResults.push({ field: "name", result: nameResult });
     } catch (e) {
       fillResults.push({ field: "name", skipped: true, error: e.message });
@@ -183,7 +188,10 @@ module.exports = async function handler(req, res) {
 
     // Fill email field
     try {
-      const emailResult = await stagehand.act(`Type "quinn@getquinn.ai" into the email input field`);
+      const emailResult = await stagehand.act({
+        action: `Type "quinn@getquinn.ai" into the email input field`,
+        iframes: true
+      });
       fillResults.push({ field: "email", result: emailResult });
     } catch (e) {
       fillResults.push({ field: "email", skipped: true, error: e.message });
@@ -191,7 +199,10 @@ module.exports = async function handler(req, res) {
 
     // Fill phone field
     try {
-      const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into the phone number input field`);
+      const phoneResult = await stagehand.act({
+        action: `Type "${serviceRequest.phoneCallback || '250-555-0123'}" into the phone number input field`,
+        iframes: true
+      });
       fillResults.push({ field: "phone", result: phoneResult });
     } catch (e) {
       fillResults.push({ field: "phone", skipped: true, error: e.message });
@@ -199,7 +210,10 @@ module.exports = async function handler(req, res) {
 
     // Fill address field
     try {
-      const addressResult = await stagehand.act(`Type "${serviceRequest.location}" into the address or location input field`);
+      const addressResult = await stagehand.act({
+        action: `Type "${serviceRequest.location}" into the address or location input field`,
+        iframes: true
+      });
       fillResults.push({ field: "address", result: addressResult });
     } catch (e) {
       fillResults.push({ field: "address", skipped: true, error: e.message });
@@ -207,7 +221,10 @@ module.exports = async function handler(req, res) {
 
     // Fill message/description field
     try {
-      const messageResult = await stagehand.act(`Type the following message into the description or notes textarea: "${message}"`);
+      const messageResult = await stagehand.act({
+        action: `Type the following message into the description or notes textarea: "${message}"`,
+        iframes: true
+      });
       fillResults.push({ field: "message", result: messageResult });
     } catch (e) {
       fillResults.push({ field: "message", skipped: true, error: e.message });
