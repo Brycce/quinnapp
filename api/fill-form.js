@@ -28,11 +28,15 @@ module.exports = async function handler(req, res) {
   }
 
   let stagehand = null;
+  const debugLog = [];
 
   try {
+    debugLog.push({ step: "init", time: Date.now() });
+
     // Dynamic imports for ESM modules
     const { Stagehand, AISdkClient } = await import("@browserbasehq/stagehand");
     const { createGroq } = await import("@ai-sdk/groq");
+    debugLog.push({ step: "imports_loaded", time: Date.now() });
 
     // Create Groq client for Stagehand
     const groqProvider = createGroq({
@@ -42,10 +46,6 @@ module.exports = async function handler(req, res) {
     const groqClient = new AISdkClient({
       model: groqProvider("openai/gpt-oss-120b"),
     });
-
-    // Debug log
-    const debugLog = [];
-    debugLog.push({ step: "init", time: Date.now() });
 
     // Initialize Stagehand with Browserbase
     stagehand = new Stagehand({
@@ -162,6 +162,8 @@ module.exports = async function handler(req, res) {
       success: false,
       businessId,
       message: error.message || "Form filling failed",
+      errorStack: error.stack?.substring(0, 500),
+      debug: debugLog || [],
     });
   }
 };
