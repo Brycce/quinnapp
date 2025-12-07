@@ -80,20 +80,42 @@ module.exports = async function handler(req, res) {
     const beforeBase64 = beforeScreenshot.toString('base64');
     debugLog.push({ step: "screenshot_before", time: Date.now() });
 
-    // Try to click the reCAPTCHA checkbox
-    // The checkbox is in an iframe, so we need to handle that
-    const clickResult = await stagehand.act("Click the reCAPTCHA checkbox that says 'I'm not a robot'");
-    debugLog.push({ step: "clicked_checkbox", result: clickResult, time: Date.now() });
-
-    // Wait for CAPTCHA solving (up to 60 seconds, checking every 2 seconds)
-    debugLog.push({ step: "waiting_for_captcha", time: Date.now() });
+    // Wait for Browserbase to automatically solve the CAPTCHA
+    // According to docs, it should handle it in the background
+    debugLog.push({ step: "waiting_for_captcha_auto_solve", time: Date.now() });
 
     let waited = 0;
-    const maxWait = 60000;
+    const maxWait = 45000;
     while (!solvingFinished && waited < maxWait) {
-      await new Promise(r => setTimeout(r, 2000));
-      waited += 2000;
-      debugLog.push({ step: "polling", waited, solvingFinished, time: Date.now() });
+      await new Promise(r => setTimeout(r, 3000));
+      waited += 3000;
+
+      // Check if checkbox is already checked
+      const checkboxState = await page.evaluate(() => {
+        const iframe = document.querySelector('iframe[title*="reCAPTCHA"]');
+        if (iframe && iframe.contentDocument) {
+          const checkbox = iframe.contentDocument.querySelector('.recaptcha-checkbox-checked');
+          return !!checkbox;
+        }
+        return false;
+      }).catch(() => false);
+
+      debugLog.push({ step: "polling", waited, solvingFinished, checkboxState, time: Date.now() });
+
+      if (checkboxState) {
+        debugLog.push({ step: "checkbox_already_checked", time: Date.now() });
+        break;
+      }
+    }
+
+    // If not auto-solved, try clicking manually
+    if (!solvingFinished) {
+      debugLog.push({ step: "trying_manual_click", time: Date.now() });
+      const clickResult = await stagehand.act("Click the reCAPTCHA checkbox that says 'I'm not a robot'");
+      debugLog.push({ step: "clicked_checkbox", result: clickResult, time: Date.now() });
+
+      // Wait a bit more for solving after manual click
+      await new Promise(r => setTimeout(r, 15000));
     }
 
     debugLog.push({ step: "done_waiting", solvingFinished, totalWaited: waited, time: Date.now() });
@@ -129,7 +151,8 @@ module.exports = async function handler(req, res) {
       message: success ? "CAPTCHA solved successfully!" : "CAPTCHA may not have been solved",
       pageContent: pageContent.substring(0, 500),
       debug: debugLog,
-      fullScreenshotAfter: afterBase64,
+      screenshotMid: midBase64,
+      screenshotAfter: afterBase64,
     });
 
   } catch (error) {
