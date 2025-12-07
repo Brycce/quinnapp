@@ -121,51 +121,134 @@ module.exports = async function handler(req, res) {
     debugLog.push({ step: "form_type", isBookingWidget, time: Date.now() });
 
     if (isBookingWidget) {
-      // Handle booking widget - could be visual price book, dropdowns, or cards
-      // Stagehand v3 handles iframes automatically
+      // Handle HouseCall Pro style booking widget with 4-step flow:
+      // Step 1: Service Selection → "Add to booking"
+      // Step 2: Description → "Book service"
+      // Step 3: Contact Details (name, email, phone, address) → "Next"
+      // Step 4: Arrival Window (date/time)
 
-      // Step 1: Select service - look for clickable service cards/options INSIDE THE MODAL
+      // === STEP 1: Select service and click "Add to booking" ===
       try {
         const serviceResult = await stagehand.act("Inside the booking modal or popup dialog, click on a service option card or tile. Look for clickable boxes with service names and prices. Do NOT click on navigation menu items. Click inside the modal/popup only.");
-        fillResults.push({ field: "service_selection", result: serviceResult });
-        await new Promise(r => setTimeout(r, 1500)); // Wait for next step to load
+        fillResults.push({ field: "step1_service_selection", result: serviceResult });
+        await new Promise(r => setTimeout(r, 2000));
       } catch (e) {
-        fillResults.push({ field: "service_selection", skipped: true, error: e.message });
+        fillResults.push({ field: "step1_service_selection", skipped: true, error: e.message });
       }
 
-      // Step 2: If there's a "Next" or "Continue" button, click it
+      // Click "Add to booking" button to proceed to step 2
       try {
-        const nextResult = await stagehand.act("If there is a Next, Continue, or arrow button to proceed to the next step, click it");
-        fillResults.push({ field: "next_step", result: nextResult });
-        await new Promise(r => setTimeout(r, 1500));
+        const addResult = await stagehand.act("Click the 'Add to booking' button inside the modal");
+        fillResults.push({ field: "step1_add_to_booking", result: addResult });
+        await new Promise(r => setTimeout(r, 2000));
       } catch (e) {
-        fillResults.push({ field: "next_step", skipped: true, error: e.message });
+        fillResults.push({ field: "step1_add_to_booking", skipped: true, error: e.message });
       }
 
-      // Step 3: Select date if visible
+      // === STEP 2: Fill description and click "Book service" ===
       try {
-        const dateResult = await stagehand.act("If there is a calendar or date picker visible, click on tomorrow's date or the next available date");
-        fillResults.push({ field: "date", result: dateResult });
+        const descResult = await stagehand.act(`Type "${serviceRequest.description}" into the description or message text area inside the modal`);
+        fillResults.push({ field: "step2_description", result: descResult });
         await new Promise(r => setTimeout(r, 1000));
       } catch (e) {
-        fillResults.push({ field: "date", skipped: true, error: e.message });
+        fillResults.push({ field: "step2_description", skipped: true, error: e.message });
       }
 
-      // Step 4: Select time if visible
+      // Click "Book service" button to proceed to step 3
       try {
-        const timeResult = await stagehand.act("If there are time slots visible, click on any available morning time slot");
-        fillResults.push({ field: "time", result: timeResult });
+        const bookResult = await stagehand.act("Click the 'Book service' button inside the modal");
+        fillResults.push({ field: "step2_book_service", result: bookResult });
+        await new Promise(r => setTimeout(r, 2000));
+      } catch (e) {
+        fillResults.push({ field: "step2_book_service", skipped: true, error: e.message });
+      }
+
+      // === STEP 3: Fill contact details ===
+      // First name
+      try {
+        const firstNameResult = await stagehand.act(`Type "${serviceRequest.customerName.split(' ')[0]}" into the First name input field`);
+        fillResults.push({ field: "step3_first_name", result: firstNameResult });
+      } catch (e) {
+        fillResults.push({ field: "step3_first_name", skipped: true, error: e.message });
+      }
+
+      // Last name
+      try {
+        const lastNameResult = await stagehand.act(`Type "${serviceRequest.customerName.split(' ').slice(1).join(' ') || 'Customer'}" into the Last name input field`);
+        fillResults.push({ field: "step3_last_name", result: lastNameResult });
+      } catch (e) {
+        fillResults.push({ field: "step3_last_name", skipped: true, error: e.message });
+      }
+
+      // Phone
+      try {
+        const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into the Phone number input field`);
+        fillResults.push({ field: "step3_phone", result: phoneResult });
+      } catch (e) {
+        fillResults.push({ field: "step3_phone", skipped: true, error: e.message });
+      }
+
+      // Email - CRITICAL field
+      try {
+        const emailResult = await stagehand.act("Type \"quinn@getquinn.ai\" into the Email input field");
+        fillResults.push({ field: "step3_email", result: emailResult });
+      } catch (e) {
+        // Retry with different approach
+        try {
+          const emailRetry = await stagehand.act("Click on the email field and enter quinn@getquinn.ai");
+          fillResults.push({ field: "step3_email", result: emailRetry });
+        } catch (e2) {
+          fillResults.push({ field: "step3_email", skipped: true, error: e2.message });
+        }
+      }
+
+      // Address
+      try {
+        const addressResult = await stagehand.act(`Type "${serviceRequest.location}" into the Address input field`);
+        fillResults.push({ field: "step3_address", result: addressResult });
+      } catch (e) {
+        fillResults.push({ field: "step3_address", skipped: true, error: e.message });
+      }
+
+      // City
+      try {
+        const cityResult = await stagehand.act("Type \"Victoria\" into the City input field");
+        fillResults.push({ field: "step3_city", result: cityResult });
+      } catch (e) {
+        fillResults.push({ field: "step3_city", skipped: true, error: e.message });
+      }
+
+      // Zip/Postal Code
+      try {
+        const zipResult = await stagehand.act("Type \"V8N 5C1\" into the Zip or Postal code input field");
+        fillResults.push({ field: "step3_zip", result: zipResult });
+      } catch (e) {
+        fillResults.push({ field: "step3_zip", skipped: true, error: e.message });
+      }
+
+      // Click "Next" to proceed to step 4
+      try {
+        const nextResult = await stagehand.act("Click the 'Next' button to proceed to arrival window selection");
+        fillResults.push({ field: "step3_next", result: nextResult });
+        await new Promise(r => setTimeout(r, 2000));
+      } catch (e) {
+        fillResults.push({ field: "step3_next", skipped: true, error: e.message });
+      }
+
+      // === STEP 4: Select arrival window ===
+      try {
+        const dateResult = await stagehand.act("Click on the next available date in the calendar");
+        fillResults.push({ field: "step4_date", result: dateResult });
         await new Promise(r => setTimeout(r, 1000));
       } catch (e) {
-        fillResults.push({ field: "time", skipped: true, error: e.message });
+        fillResults.push({ field: "step4_date", skipped: true, error: e.message });
       }
 
-      // Step 5: Fill description/notes if visible
       try {
-        const descResult = await stagehand.act(`If there is a description, notes, or comments text area, type: "${serviceRequest.description}"`);
-        fillResults.push({ field: "booking_description", result: descResult });
+        const timeResult = await stagehand.act("Click on any available time slot");
+        fillResults.push({ field: "step4_time", result: timeResult });
       } catch (e) {
-        fillResults.push({ field: "booking_description", skipped: true, error: e.message });
+        fillResults.push({ field: "step4_time", skipped: true, error: e.message });
       }
     }
 
