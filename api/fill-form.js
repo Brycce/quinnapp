@@ -124,9 +124,9 @@ module.exports = async function handler(req, res) {
       // Handle booking widget - could be visual price book, dropdowns, or cards
       // Stagehand v3 handles iframes automatically
 
-      // Step 1: Select service - look for clickable service cards/options
+      // Step 1: Select service - look for clickable service cards/options INSIDE THE MODAL
       try {
-        const serviceResult = await stagehand.act("Click on a service option, service card, or service tile. Look for options related to plumbing, repairs, general service, or 'other'. Click on the first relevant service option you see.");
+        const serviceResult = await stagehand.act("Inside the booking modal or popup dialog, click on a service option card or tile. Look for clickable boxes with service names and prices. Do NOT click on navigation menu items. Click inside the modal/popup only.");
         fillResults.push({ field: "service_selection", result: serviceResult });
         await new Promise(r => setTimeout(r, 1500)); // Wait for next step to load
       } catch (e) {
