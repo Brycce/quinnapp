@@ -72,16 +72,16 @@ module.exports = async function handler(req, res) {
     await page.goto(website, { waitUntil: "domcontentloaded", timeout: 30000 });
     debugLog.push({ step: "navigated_to_website", url: page.url(), time: Date.now() });
 
-    // Try to find and navigate to contact page
-    const navResult = await stagehand.act("Look for and click a 'Contact', 'Contact Us', 'Get a Quote', 'Request Quote', or 'Get Estimate' link or button. If none found, that's okay.");
-    debugLog.push({ step: "nav_to_contact", result: navResult, time: Date.now() });
+    // Try to find and click a booking/quote button (these often open modals or navigate to forms)
+    const navResult = await stagehand.act("Look for and click a button or link that says 'Book Now', 'Book Online', 'Schedule Service', 'Get Estimate', 'Get a Quote', 'Request Quote', 'Free Estimate', or similar booking/quote action. Prefer prominent buttons over footer links. If none found, that's okay.");
+    debugLog.push({ step: "nav_to_booking", result: navResult, time: Date.now() });
 
-    // Wait a moment for page to load
-    await new Promise(r => setTimeout(r, 2000));
+    // Wait for page/modal to load (modals may have animations)
+    await new Promise(r => setTimeout(r, 3000));
     debugLog.push({ step: "after_wait", url: page.url(), time: Date.now() });
 
-    // Check if there's a contact form on this page
-    const formObservation = await stagehand.observe("Find any contact form, quote request form, or inquiry form on this page. Look for input fields like name, email, phone, message, or description.");
+    // Check if there's a contact form, modal, or booking widget on this page
+    const formObservation = await stagehand.observe("Find any contact form, booking form, quote request form, or popup modal on this page. Look for input fields like name, email, phone, message, address, or description. Also check for iframe booking widgets from services like HouseCall Pro, Jobber, or ServiceTitan.");
     debugLog.push({ step: "observe_form", found: formObservation?.length || 0, observation: formObservation, time: Date.now() });
 
     if (!formObservation || formObservation.length === 0) {
