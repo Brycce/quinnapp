@@ -179,12 +179,18 @@ module.exports = async function handler(req, res) {
       fillResults.push({ field: "name", skipped: true, error: e.message });
     }
 
-    // Fill email field
+    // Fill email field - try multiple approaches
     try {
-      const emailResult = await stagehand.act(`Type "quinn@getquinn.ai" into the email input field`);
+      const emailResult = await stagehand.act(`Find the email address input field and type "quinn@getquinn.ai" into it`);
       fillResults.push({ field: "email", result: emailResult });
     } catch (e) {
-      fillResults.push({ field: "email", skipped: true, error: e.message });
+      // Retry with different wording
+      try {
+        const emailRetry = await stagehand.act(`Click on the email field and enter quinn@getquinn.ai`);
+        fillResults.push({ field: "email", result: emailRetry });
+      } catch (e2) {
+        fillResults.push({ field: "email", skipped: true, error: e2.message });
+      }
     }
 
     // Fill phone field
