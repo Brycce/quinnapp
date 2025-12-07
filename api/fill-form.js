@@ -121,36 +121,48 @@ module.exports = async function handler(req, res) {
     debugLog.push({ step: "form_type", isBookingWidget, time: Date.now() });
 
     if (isBookingWidget) {
-      // Handle booking widget with dropdowns/date pickers
+      // Handle booking widget - could be visual price book, dropdowns, or cards
       // Stagehand v3 handles iframes automatically
 
-      // Select service type dropdown
+      // Step 1: Select service - look for clickable service cards/options
       try {
-        const serviceResult = await stagehand.act("Click on any service type or job type dropdown, then select a plumbing related option");
-        fillResults.push({ field: "service_type", result: serviceResult });
+        const serviceResult = await stagehand.act("Click on a service option, service card, or service tile. Look for options related to plumbing, repairs, general service, or 'other'. Click on the first relevant service option you see.");
+        fillResults.push({ field: "service_selection", result: serviceResult });
+        await new Promise(r => setTimeout(r, 1500)); // Wait for next step to load
       } catch (e) {
-        fillResults.push({ field: "service_type", skipped: true, error: e.message });
+        fillResults.push({ field: "service_selection", skipped: true, error: e.message });
       }
 
-      // Select date
+      // Step 2: If there's a "Next" or "Continue" button, click it
       try {
-        const dateResult = await stagehand.act("Click on the date field or calendar picker, then select tomorrow's date or any available date");
+        const nextResult = await stagehand.act("If there is a Next, Continue, or arrow button to proceed to the next step, click it");
+        fillResults.push({ field: "next_step", result: nextResult });
+        await new Promise(r => setTimeout(r, 1500));
+      } catch (e) {
+        fillResults.push({ field: "next_step", skipped: true, error: e.message });
+      }
+
+      // Step 3: Select date if visible
+      try {
+        const dateResult = await stagehand.act("If there is a calendar or date picker visible, click on tomorrow's date or the next available date");
         fillResults.push({ field: "date", result: dateResult });
+        await new Promise(r => setTimeout(r, 1000));
       } catch (e) {
         fillResults.push({ field: "date", skipped: true, error: e.message });
       }
 
-      // Select time
+      // Step 4: Select time if visible
       try {
-        const timeResult = await stagehand.act("Click on the time field or time picker and select any available time slot");
+        const timeResult = await stagehand.act("If there are time slots visible, click on any available morning time slot");
         fillResults.push({ field: "time", result: timeResult });
+        await new Promise(r => setTimeout(r, 1000));
       } catch (e) {
         fillResults.push({ field: "time", skipped: true, error: e.message });
       }
 
-      // Fill description in booking widget
+      // Step 5: Fill description/notes if visible
       try {
-        const descResult = await stagehand.act(`Find the description or notes text area and type: "${serviceRequest.description}"`);
+        const descResult = await stagehand.act(`If there is a description, notes, or comments text area, type: "${serviceRequest.description}"`);
         fillResults.push({ field: "booking_description", result: descResult });
       } catch (e) {
         fillResults.push({ field: "booking_description", skipped: true, error: e.message });
