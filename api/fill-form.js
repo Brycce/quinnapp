@@ -56,6 +56,11 @@ module.exports = async function handler(req, res) {
       enableCaching: false, // Disable caching for debugging
       verbose: 2, // Enable verbose logging
       disablePino: true, // Required for serverless
+      browserbaseSessionCreateParams: {
+        browserSettings: {
+          solveCaptchas: true, // Enable automatic CAPTCHA solving
+        },
+      },
     });
 
     await stagehand.init();
