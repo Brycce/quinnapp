@@ -107,7 +107,7 @@ module.exports = async function handler(req, res) {
     debugLog.push({ step: "screenshot_after", time: Date.now() });
 
     // Check if we're on the success page
-    const pageContent = await page.content();
+    const pageContent = await page.evaluate(() => document.body.innerText);
     const success = pageContent.includes("Verification Success") ||
                     pageContent.includes("score") ||
                     page.url().includes("action=demo");
@@ -117,12 +117,8 @@ module.exports = async function handler(req, res) {
     res.status(200).json({
       success,
       message: success ? "CAPTCHA solved successfully!" : "CAPTCHA may not have been solved",
+      pageContent: pageContent.substring(0, 500),
       debug: debugLog,
-      screenshots: {
-        before: beforeBase64.substring(0, 200) + "...",
-        mid: midBase64.substring(0, 200) + "...",
-        after: afterBase64.substring(0, 200) + "...",
-      },
       fullScreenshotAfter: afterBase64,
     });
 
