@@ -102,12 +102,52 @@ module.exports = async function handler(req, res) {
     // Compose the message to send
     const message = `Hi, my name is ${serviceRequest.customerName}. I'm looking for help with ${serviceRequest.serviceType}. ${serviceRequest.description} Location: ${serviceRequest.location}. Timeline: ${serviceRequest.timeline}. Please contact me to discuss. Thank you!`;
 
-    // Fill the form field by field - try each field, skip if not found
+    // Fill the form - handle both standard contact forms and booking widgets
     const fillResults = [];
+
+    // First, check if this is a booking widget with service/date/time selectors
+    const isBookingWidget = formObservation.some(obs =>
+      obs.description?.toLowerCase().includes('date') ||
+      obs.description?.toLowerCase().includes('time') ||
+      obs.description?.toLowerCase().includes('booking') ||
+      obs.description?.toLowerCase().includes('schedule')
+    );
+
+    debugLog.push({ step: "form_type", isBookingWidget, time: Date.now() });
+
+    if (isBookingWidget) {
+      // Handle booking widget with dropdowns/date pickers
+
+      // Select service type if dropdown exists
+      try {
+        const serviceResult = await stagehand.act(`If there is a service type dropdown or selection, click it and select an option related to "${serviceRequest.serviceType}" or "${serviceRequest.description}". If no service dropdown, do nothing.`);
+        fillResults.push({ field: "service_type", result: serviceResult });
+      } catch (e) {
+        fillResults.push({ field: "service_type", skipped: true, error: e.message });
+      }
+
+      // Select date - pick the next available date
+      try {
+        const dateResult = await stagehand.act(`If there is a date picker or date field, click it and select the next available date or any date this week. If no date field, do nothing.`);
+        fillResults.push({ field: "date", result: dateResult });
+      } catch (e) {
+        fillResults.push({ field: "date", skipped: true, error: e.message });
+      }
+
+      // Select time - pick any available time
+      try {
+        const timeResult = await stagehand.act(`If there is a time picker or time slot selection, click it and select any available time slot, preferring morning times. If no time field, do nothing.`);
+        fillResults.push({ field: "time", result: timeResult });
+      } catch (e) {
+        fillResults.push({ field: "time", skipped: true, error: e.message });
+      }
+    }
+
+    // Standard fields - works for both form types
 
     // Fill name field (if exists)
     try {
-      const nameResult = await stagehand.act(`Type "${serviceRequest.customerName}" into any name, first name, or customer name field. If no name field exists, do nothing.`);
+      const nameResult = await stagehand.act(`Type "${serviceRequest.customerName}" into any name, first name, or customer name input field. If no name field exists, do nothing.`);
       fillResults.push({ field: "name", result: nameResult });
     } catch (e) {
       fillResults.push({ field: "name", skipped: true, error: e.message });
@@ -115,7 +155,7 @@ module.exports = async function handler(req, res) {
 
     // Fill email field (if exists)
     try {
-      const emailResult = await stagehand.act(`Type "quinn@getquinn.ai" into any email field. If no email field exists, do nothing.`);
+      const emailResult = await stagehand.act(`Type "quinn@getquinn.ai" into any email input field. If no email field exists, do nothing.`);
       fillResults.push({ field: "email", result: emailResult });
     } catch (e) {
       fillResults.push({ field: "email", skipped: true, error: e.message });
@@ -123,7 +163,7 @@ module.exports = async function handler(req, res) {
 
     // Fill phone field (if exists)
     try {
-      const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into any phone or telephone field. If no phone field exists, do nothing.`);
+      const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into any phone or telephone input field. If no phone field exists, do nothing.`);
       fillResults.push({ field: "phone", result: phoneResult });
     } catch (e) {
       fillResults.push({ field: "phone", skipped: true, error: e.message });
@@ -131,7 +171,7 @@ module.exports = async function handler(req, res) {
 
     // Fill address field (if exists)
     try {
-      const addressResult = await stagehand.act(`Type "${serviceRequest.location}" into any address, street address, or location field. If no address field exists, do nothing.`);
+      const addressResult = await stagehand.act(`Type "${serviceRequest.location}" into any address, street address, or location input field. If no address field exists, do nothing.`);
       fillResults.push({ field: "address", result: addressResult });
     } catch (e) {
       fillResults.push({ field: "address", skipped: true, error: e.message });
@@ -139,7 +179,7 @@ module.exports = async function handler(req, res) {
 
     // Fill message/description field (if exists)
     try {
-      const messageResult = await stagehand.act(`Type the following into any message, comments, description, notes, or textarea field: "${message}". If no such field exists, do nothing.`);
+      const messageResult = await stagehand.act(`Type the following into any message, comments, description, notes, or large textarea field: "${message}". If no such field exists, do nothing.`);
       fillResults.push({ field: "message", result: messageResult });
     } catch (e) {
       fillResults.push({ field: "message", skipped: true, error: e.message });
