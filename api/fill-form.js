@@ -149,32 +149,35 @@ Description: ${serviceRequest.description}
 
         // 2. DECIDE: What action to take based on observations
         const obsText = observations.map(o => o.description).join(', ').toLowerCase();
-        const hasEmptyInput = obsText.includes('empty') || obsText.includes('input field') || obsText.includes('text area') || obsText.includes('textbox');
+
+        // Detect truly empty fields (not filled/pre-filled ones)
+        const hasEmptyInput = obsText.includes('empty') ||
+                              (obsText.includes('input') && !obsText.includes('filled')) ||
+                              (obsText.includes('textbox') && !obsText.includes('filled') && !obsText.includes('pre-filled'));
         const hasAddToBooking = obsText.includes('add to booking');
-        const hasServiceOption = (obsText.includes('rate') || obsText.includes('hourly') || obsText.includes('service type') || obsText.includes('$')) && !hasAddToBooking;
-        const hasNavButton = obsText.includes('next') || obsText.includes('continue') || obsText.includes('add to') || obsText.includes('proceed');
+        const hasBookService = obsText.includes('book service');
+        const hasServiceOption = (obsText.includes('rate') || obsText.includes('hourly') || obsText.includes('service type') || obsText.includes('$')) && !hasAddToBooking && !hasBookService;
+        const hasNavButton = obsText.includes('next') || obsText.includes('continue') || obsText.includes('proceed') || obsText.includes('submit');
         const hasButton = obsText.includes('button');
 
         let action = null;
         let result = null;
 
-        // Priority: 1) Click "Add to booking" if service selected, 2) Select service, 3) Fill fields, 4) Click nav
+        // Priority: 1) Click "Add to booking", 2) Click "Book service", 3) Select service, 4) Fill empty fields, 5) Click nav
         if (hasAddToBooking) {
-          // Service is selected, proceed to next step
-          result = await stagehand.act(
-            "Click the 'Add to booking' button to proceed to the next step."
-          );
+          result = await stagehand.act("Click the 'Add to booking' button to proceed.");
           action = 'add_to_booking';
+        } else if (hasBookService) {
+          result = await stagehand.act("Click the 'Book service' button to proceed to the next step.");
+          action = 'book_service';
         } else if (hasServiceOption && !hasEmptyInput) {
-          // 3. ACT: Select a service type/rate first
           result = await stagehand.act(
             "Click on a service option, hourly rate button, or service type to select it. Look for buttons showing prices like '$145' or service categories. Do NOT click 'BOOK AN APPOINTMENT' or close buttons."
           );
           action = 'select_service';
         } else if (hasEmptyInput) {
-          // 3. ACT: Fill the next empty field
           result = await stagehand.act(
-            `Type the appropriate value into the first empty input field. Use: firstName=%firstName%, lastName=%lastName%, email=%email%, phone=%phone%, address=%address%, description=%description%`,
+            `Fill the first empty input field with appropriate data. Use: firstName=%firstName%, lastName=%lastName%, email=%email%, phone=%phone%, address=%address%, description=%description%`,
             {
               variables: {
                 firstName: serviceRequest.customerName.split(' ')[0],
@@ -188,9 +191,8 @@ Description: ${serviceRequest.description}
           );
           action = 'fill';
         } else if (hasNavButton || hasButton) {
-          // 3. ACT: Click the next/continue button
           result = await stagehand.act(
-            "Click the navigation button to proceed: 'Next', 'Continue', 'Add to booking', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons."
+            "Click the primary action button to proceed: 'Next', 'Continue', 'Book service', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons."
           );
           action = 'click';
         } else {
