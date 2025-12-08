@@ -104,203 +104,89 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // Compose the message to send
-    const message = `Hi, my name is ${serviceRequest.customerName}. I'm looking for help with ${serviceRequest.serviceType}. ${serviceRequest.description} Location: ${serviceRequest.location}. Timeline: ${serviceRequest.timeline}. Please contact me to discuss. Thank you!`;
+    // Customer data for form filling
+    const customerData = `
+First Name: ${serviceRequest.customerName.split(' ')[0]}
+Last Name: ${serviceRequest.customerName.split(' ').slice(1).join(' ') || 'Customer'}
+Email: quinn@getquinn.ai
+Phone: ${serviceRequest.phoneCallback || '250-555-0123'}
+Address: ${serviceRequest.location}
+City: Victoria
+Postal Code: V8N 5C1
+Description: ${serviceRequest.description}
+`;
 
-    // Fill the form - handle both standard contact forms and booking widgets
-    const fillResults = [];
+    // Agentic loop - let the AI reason through the form
+    const iterationResults = [];
+    let iteration = 0;
+    const maxIterations = 8; // Safety limit
 
-    // First, check if this is a booking widget with service/date/time selectors
-    const isBookingWidget = formObservation.some(obs =>
-      obs.description?.toLowerCase().includes('date') ||
-      obs.description?.toLowerCase().includes('time') ||
-      obs.description?.toLowerCase().includes('booking') ||
-      obs.description?.toLowerCase().includes('schedule')
-    );
+    debugLog.push({ step: "starting_agentic_loop", maxIterations, time: Date.now() });
 
-    debugLog.push({ step: "form_type", isBookingWidget, time: Date.now() });
+    while (iteration < maxIterations) {
+      iteration++;
+      debugLog.push({ step: `iteration_${iteration}_start`, time: Date.now() });
 
-    if (isBookingWidget) {
-      // Handle HouseCall Pro style booking widget with 4-step flow:
-      // Step 1: Service Selection → "Add to booking"
-      // Step 2: Description → "Book service"
-      // Step 3: Contact Details (name, email, phone, address) → "Next"
-      // Step 4: Arrival Window (date/time)
-
-      // === STEP 1: Select service and click "Add to booking" ===
       try {
-        const serviceResult = await stagehand.act("Inside the booking modal or popup dialog, click on a service option card or tile. Look for clickable boxes with service names and prices. Do NOT click on navigation menu items. Click inside the modal/popup only.");
-        fillResults.push({ field: "step1_service_selection", result: serviceResult });
-        await new Promise(r => setTimeout(r, 2000));
-      } catch (e) {
-        fillResults.push({ field: "step1_service_selection", skipped: true, error: e.message });
-      }
+        const result = await stagehand.act(`
+You are filling out a contact or booking form to request service.
 
-      // Click "Add to booking" button to proceed to step 2
-      try {
-        const addResult = await stagehand.act("Click the 'Add to booking' button inside the modal");
-        fillResults.push({ field: "step1_add_to_booking", result: addResult });
-        await new Promise(r => setTimeout(r, 2000));
-      } catch (e) {
-        fillResults.push({ field: "step1_add_to_booking", skipped: true, error: e.message });
-      }
+CUSTOMER INFORMATION TO USE:
+${customerData}
 
-      // === STEP 2: Fill description and click "Book service" ===
-      try {
-        const descResult = await stagehand.act(`Type "${serviceRequest.description}" into the description or message text area inside the modal`);
-        fillResults.push({ field: "step2_description", result: descResult });
-        await new Promise(r => setTimeout(r, 1000));
-      } catch (e) {
-        fillResults.push({ field: "step2_description", skipped: true, error: e.message });
-      }
+INSTRUCTIONS:
+1. Look at what's currently visible on the page/modal
+2. If you see a service selection (clickable cards with prices), click one to select it
+3. If you see unfilled form fields, fill them with the customer info above
+4. If all visible fields are filled and there's a "Next", "Continue", "Add to booking", "Book service", or similar button, click it to proceed to the next step
+5. If you see a date/time picker, select the next available date and any available time slot
+6. If you see a confirmation message, success screen, or the form appears fully complete, respond that you are done
 
-      // Click "Book service" button to proceed to step 3
-      try {
-        const bookResult = await stagehand.act("Click the 'Book service' button inside the modal");
-        fillResults.push({ field: "step2_book_service", result: bookResult });
-        await new Promise(r => setTimeout(r, 2000));
-      } catch (e) {
-        fillResults.push({ field: "step2_book_service", skipped: true, error: e.message });
-      }
+Take the single most appropriate action right now. Do NOT click submit/confirm booking buttons.
+`);
 
-      // === STEP 3: Fill contact details ===
-      // First name
-      try {
-        const firstNameResult = await stagehand.act(`Type "${serviceRequest.customerName.split(' ')[0]}" into the First name input field`);
-        fillResults.push({ field: "step3_first_name", result: firstNameResult });
-      } catch (e) {
-        fillResults.push({ field: "step3_first_name", skipped: true, error: e.message });
-      }
+        iterationResults.push({
+          iteration,
+          result: result?.message || 'action taken',
+          time: Date.now()
+        });
 
-      // Last name
-      try {
-        const lastNameResult = await stagehand.act(`Type "${serviceRequest.customerName.split(' ').slice(1).join(' ') || 'Customer'}" into the Last name input field`);
-        fillResults.push({ field: "step3_last_name", result: lastNameResult });
-      } catch (e) {
-        fillResults.push({ field: "step3_last_name", skipped: true, error: e.message });
-      }
+        debugLog.push({
+          step: `iteration_${iteration}_complete`,
+          result: result?.message?.substring(0, 100),
+          time: Date.now()
+        });
 
-      // Phone
-      try {
-        const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into the Phone number input field`);
-        fillResults.push({ field: "step3_phone", result: phoneResult });
-      } catch (e) {
-        fillResults.push({ field: "step3_phone", skipped: true, error: e.message });
-      }
-
-      // Email - CRITICAL field
-      try {
-        const emailResult = await stagehand.act("Type \"quinn@getquinn.ai\" into the Email input field");
-        fillResults.push({ field: "step3_email", result: emailResult });
-      } catch (e) {
-        // Retry with different approach
-        try {
-          const emailRetry = await stagehand.act("Click on the email field and enter quinn@getquinn.ai");
-          fillResults.push({ field: "step3_email", result: emailRetry });
-        } catch (e2) {
-          fillResults.push({ field: "step3_email", skipped: true, error: e2.message });
+        // Check if we're likely done
+        const resultMsg = (result?.message || '').toLowerCase();
+        if (resultMsg.includes('done') ||
+            resultMsg.includes('complete') ||
+            resultMsg.includes('submitted') ||
+            resultMsg.includes('confirmation') ||
+            resultMsg.includes('no action') ||
+            resultMsg.includes('nothing to')) {
+          debugLog.push({ step: "loop_complete_detected", iteration, time: Date.now() });
+          break;
         }
+
+      } catch (e) {
+        iterationResults.push({
+          iteration,
+          error: e.message,
+          time: Date.now()
+        });
+        debugLog.push({
+          step: `iteration_${iteration}_error`,
+          error: e.message?.substring(0, 100),
+          time: Date.now()
+        });
       }
 
-      // Address
-      try {
-        const addressResult = await stagehand.act(`Type "${serviceRequest.location}" into the Address input field`);
-        fillResults.push({ field: "step3_address", result: addressResult });
-      } catch (e) {
-        fillResults.push({ field: "step3_address", skipped: true, error: e.message });
-      }
-
-      // City
-      try {
-        const cityResult = await stagehand.act("Type \"Victoria\" into the City input field");
-        fillResults.push({ field: "step3_city", result: cityResult });
-      } catch (e) {
-        fillResults.push({ field: "step3_city", skipped: true, error: e.message });
-      }
-
-      // Zip/Postal Code
-      try {
-        const zipResult = await stagehand.act("Type \"V8N 5C1\" into the Zip or Postal code input field");
-        fillResults.push({ field: "step3_zip", result: zipResult });
-      } catch (e) {
-        fillResults.push({ field: "step3_zip", skipped: true, error: e.message });
-      }
-
-      // Click "Next" to proceed to step 4
-      try {
-        const nextResult = await stagehand.act("Click the 'Next' button to proceed to arrival window selection");
-        fillResults.push({ field: "step3_next", result: nextResult });
-        await new Promise(r => setTimeout(r, 2000));
-      } catch (e) {
-        fillResults.push({ field: "step3_next", skipped: true, error: e.message });
-      }
-
-      // === STEP 4: Select arrival window ===
-      try {
-        const dateResult = await stagehand.act("Click on the next available date in the calendar");
-        fillResults.push({ field: "step4_date", result: dateResult });
-        await new Promise(r => setTimeout(r, 1000));
-      } catch (e) {
-        fillResults.push({ field: "step4_date", skipped: true, error: e.message });
-      }
-
-      try {
-        const timeResult = await stagehand.act("Click on any available time slot");
-        fillResults.push({ field: "step4_time", result: timeResult });
-      } catch (e) {
-        fillResults.push({ field: "step4_time", skipped: true, error: e.message });
-      }
+      // Brief wait between iterations for page updates
+      await new Promise(r => setTimeout(r, 1500));
     }
 
-    // Standard fields - works for both form types
-
-    // Fill name field
-    try {
-      const nameResult = await stagehand.act(`Type "${serviceRequest.customerName}" into the name input field`);
-      fillResults.push({ field: "name", result: nameResult });
-    } catch (e) {
-      fillResults.push({ field: "name", skipped: true, error: e.message });
-    }
-
-    // Fill email field - try multiple approaches
-    try {
-      const emailResult = await stagehand.act(`Find the email address input field and type "quinn@getquinn.ai" into it`);
-      fillResults.push({ field: "email", result: emailResult });
-    } catch (e) {
-      // Retry with different wording
-      try {
-        const emailRetry = await stagehand.act(`Click on the email field and enter quinn@getquinn.ai`);
-        fillResults.push({ field: "email", result: emailRetry });
-      } catch (e2) {
-        fillResults.push({ field: "email", skipped: true, error: e2.message });
-      }
-    }
-
-    // Fill phone field
-    try {
-      const phoneResult = await stagehand.act(`Type "${serviceRequest.phoneCallback || '250-555-0123'}" into the phone number input field`);
-      fillResults.push({ field: "phone", result: phoneResult });
-    } catch (e) {
-      fillResults.push({ field: "phone", skipped: true, error: e.message });
-    }
-
-    // Fill address field
-    try {
-      const addressResult = await stagehand.act(`Type "${serviceRequest.location}" into the address or location input field`);
-      fillResults.push({ field: "address", result: addressResult });
-    } catch (e) {
-      fillResults.push({ field: "address", skipped: true, error: e.message });
-    }
-
-    // Fill message/description field
-    try {
-      const messageResult = await stagehand.act(`Type the following message into the description or notes textarea: "${message}"`);
-      fillResults.push({ field: "message", result: messageResult });
-    } catch (e) {
-      fillResults.push({ field: "message", skipped: true, error: e.message });
-    }
-
-    debugLog.push({ step: "fill_form", results: fillResults, time: Date.now() });
+    debugLog.push({ step: "agentic_loop_finished", totalIterations: iteration, results: iterationResults, time: Date.now() });
 
     // Scroll to top to capture full form in screenshot
     await page.evaluate(() => window.scrollTo(0, 0));
