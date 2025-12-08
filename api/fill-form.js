@@ -77,7 +77,7 @@ module.exports = async function handler(req, res) {
     debugLog.push({ step: "nav_to_booking", result: navResult, time: Date.now() });
 
     // Wait for page/modal to load (modals may have animations)
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 5000));
     debugLog.push({ step: "after_wait", url: page.url(), time: Date.now() });
 
     // Check if there's a contact form, modal, or booking widget on this page
@@ -91,7 +91,7 @@ module.exports = async function handler(req, res) {
 
     if (!formObservation || formObservation.length === 0) {
       // Take screenshot before closing
-      const screenshotBuffer = await page.screenshot();
+      const screenshotBuffer = await page.screenshot({ fullPage: true });
       const screenshotBase64 = screenshotBuffer.toString('base64');
       await stagehand.close();
       res.status(200).json({
@@ -99,7 +99,7 @@ module.exports = async function handler(req, res) {
         businessId,
         message: "No contact form found on website",
         debug: debugLog,
-        screenshotPreview: screenshotBase64.substring(0, 200) + "...",
+        screenshotBase64: screenshotBase64,
       });
       return;
     }
