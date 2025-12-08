@@ -116,10 +116,10 @@ Postal Code: V8N 5C1
 Description: ${serviceRequest.description}
 `;
 
-    // Agentic loop - let the AI reason through the form
+    // Agentic loop using observe → decide → act pattern
     const iterationResults = [];
     let iteration = 0;
-    const maxIterations = 8; // Safety limit
+    const maxIterations = 12;
 
     debugLog.push({ step: "starting_agentic_loop", maxIterations, time: Date.now() });
 
@@ -128,43 +128,78 @@ Description: ${serviceRequest.description}
       debugLog.push({ step: `iteration_${iteration}_start`, time: Date.now() });
 
       try {
-        const result = await stagehand.act(`
-You are filling out a contact or booking form to request service.
+        // 1. OBSERVE: What's on the page?
+        const observations = await stagehand.observe(
+          "Find all interactive elements: empty input fields, text areas, dropdown menus, clickable buttons, and date/time pickers. Note which fields are empty vs filled."
+        );
 
-CUSTOMER INFORMATION TO USE:
-${customerData}
+        debugLog.push({
+          step: `iteration_${iteration}_observed`,
+          elements: observations?.length || 0,
+          types: observations?.map(o => o.description?.substring(0, 50)),
+          time: Date.now()
+        });
 
-INSTRUCTIONS:
-1. Look at what's currently visible on the page/modal
-2. If you see a service selection (clickable cards with prices), click one to select it
-3. If you see unfilled form fields, fill them with the customer info above
-4. If all visible fields are filled and there's a "Next", "Continue", "Add to booking", "Book service", or similar button, click it to proceed to the next step
-5. If you see a date/time picker, select the next available date and any available time slot
-6. If you see a confirmation message, success screen, or the form appears fully complete, respond that you are done
+        if (!observations || observations.length === 0) {
+          debugLog.push({ step: "no_elements_found", iteration, time: Date.now() });
+          break;
+        }
 
-Take the single most appropriate action right now. Do NOT click submit/confirm booking buttons.
-`);
+        // 2. DECIDE: What action to take based on observations
+        const obsText = observations.map(o => o.description).join(', ');
+        const hasEmptyInput = obsText.toLowerCase().includes('empty') ||
+                              obsText.toLowerCase().includes('input') ||
+                              obsText.toLowerCase().includes('text');
+        const hasButton = obsText.toLowerCase().includes('button');
+
+        let action = null;
+        let result = null;
+
+        // Priority: fill empty fields first, then click buttons
+        if (hasEmptyInput) {
+          // 3. ACT: Fill the next empty field
+          result = await stagehand.act(
+            `Type the appropriate value into the first empty input field. Use: firstName=%firstName%, lastName=%lastName%, email=%email%, phone=%phone%, address=%address%, description=%description%`,
+            {
+              variables: {
+                firstName: serviceRequest.customerName.split(' ')[0],
+                lastName: serviceRequest.customerName.split(' ').slice(1).join(' ') || 'Customer',
+                email: 'quinn@getquinn.ai',
+                phone: serviceRequest.phoneCallback || '250-555-0123',
+                address: serviceRequest.location,
+                description: serviceRequest.description
+              }
+            }
+          );
+          action = 'fill';
+        } else if (hasButton) {
+          // 3. ACT: Click the next/continue button
+          result = await stagehand.act(
+            "Click the primary navigation button (like 'Next', 'Continue', 'Add to booking', or 'Book service'). Do NOT click final submit or confirm buttons."
+          );
+          action = 'click';
+        } else {
+          debugLog.push({ step: "no_actionable_elements", iteration, time: Date.now() });
+          break;
+        }
 
         iterationResults.push({
           iteration,
+          action,
           result: result?.message || 'action taken',
           time: Date.now()
         });
 
         debugLog.push({
           step: `iteration_${iteration}_complete`,
+          action,
           result: result?.message?.substring(0, 100),
           time: Date.now()
         });
 
-        // Check if we're likely done
+        // Check if we're done
         const resultMsg = (result?.message || '').toLowerCase();
-        if (resultMsg.includes('done') ||
-            resultMsg.includes('complete') ||
-            resultMsg.includes('submitted') ||
-            resultMsg.includes('confirmation') ||
-            resultMsg.includes('no action') ||
-            resultMsg.includes('nothing to')) {
+        if (resultMsg.includes('no ') || resultMsg.includes('cannot') || resultMsg.includes('already')) {
           debugLog.push({ step: "loop_complete_detected", iteration, time: Date.now() });
           break;
         }
@@ -183,7 +218,7 @@ Take the single most appropriate action right now. Do NOT click submit/confirm b
       }
 
       // Brief wait between iterations for page updates
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 1000));
     }
 
     debugLog.push({ step: "agentic_loop_finished", totalIterations: iteration, results: iterationResults, time: Date.now() });
