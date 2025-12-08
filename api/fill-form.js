@@ -147,16 +147,23 @@ Description: ${serviceRequest.description}
 
         // 2. DECIDE: What action to take based on observations
         const obsText = observations.map(o => o.description).join(', ').toLowerCase();
-        const hasEmptyInput = obsText.includes('empty') || obsText.includes('input field') || obsText.includes('text area');
-        const hasServiceOption = obsText.includes('rate') || obsText.includes('hourly') || obsText.includes('service type') || obsText.includes('$');
+        const hasEmptyInput = obsText.includes('empty') || obsText.includes('input field') || obsText.includes('text area') || obsText.includes('textbox');
+        const hasAddToBooking = obsText.includes('add to booking');
+        const hasServiceOption = (obsText.includes('rate') || obsText.includes('hourly') || obsText.includes('service type') || obsText.includes('$')) && !hasAddToBooking;
         const hasNavButton = obsText.includes('next') || obsText.includes('continue') || obsText.includes('add to') || obsText.includes('proceed');
         const hasButton = obsText.includes('button');
 
         let action = null;
         let result = null;
 
-        // Priority: 1) Select service option, 2) Fill empty fields, 3) Click nav buttons
-        if (hasServiceOption && !hasEmptyInput) {
+        // Priority: 1) Click "Add to booking" if service selected, 2) Select service, 3) Fill fields, 4) Click nav
+        if (hasAddToBooking) {
+          // Service is selected, proceed to next step
+          result = await stagehand.act(
+            "Click the 'Add to booking' button to proceed to the next step."
+          );
+          action = 'add_to_booking';
+        } else if (hasServiceOption && !hasEmptyInput) {
           // 3. ACT: Select a service type/rate first
           result = await stagehand.act(
             "Click on a service option, hourly rate button, or service type to select it. Look for buttons showing prices like '$145' or service categories. Do NOT click 'BOOK AN APPOINTMENT' or close buttons."
