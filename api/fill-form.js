@@ -188,11 +188,10 @@ Take the single most appropriate action right now. Do NOT click submit/confirm b
 
     debugLog.push({ step: "agentic_loop_finished", totalIterations: iteration, results: iterationResults, time: Date.now() });
 
-    // Scroll to top to capture full form in screenshot
-    await page.evaluate(() => window.scrollTo(0, 0));
+    // Brief pause to let any animations settle
     await new Promise(r => setTimeout(r, 500));
 
-    // Take full-page screenshot after filling
+    // Take screenshot of current state (don't scroll - we want to see the form/modal)
     const screenshotBuffer = await page.screenshot({ fullPage: true });
     const screenshotBase64 = screenshotBuffer.toString('base64');
     debugLog.push({ step: "screenshot_taken", time: Date.now() });
