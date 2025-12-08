@@ -130,7 +130,7 @@ Description: ${serviceRequest.description}
       try {
         // 1. OBSERVE: What's on the page?
         const observations = await stagehand.observe(
-          "Find all interactive elements: empty input fields, text areas, dropdown menus, clickable buttons, and date/time pickers. Note which fields are empty vs filled."
+          "Find all interactive elements in this booking form or modal: empty input fields, text areas, dropdown menus, service/rate selection buttons, date/time pickers, and navigation buttons. Note which fields are empty vs filled. Look for options like 'Hourly Rate', service type buttons, or selectable service options."
         );
 
         debugLog.push({
@@ -146,17 +146,23 @@ Description: ${serviceRequest.description}
         }
 
         // 2. DECIDE: What action to take based on observations
-        const obsText = observations.map(o => o.description).join(', ');
-        const hasEmptyInput = obsText.toLowerCase().includes('empty') ||
-                              obsText.toLowerCase().includes('input') ||
-                              obsText.toLowerCase().includes('text');
-        const hasButton = obsText.toLowerCase().includes('button');
+        const obsText = observations.map(o => o.description).join(', ').toLowerCase();
+        const hasEmptyInput = obsText.includes('empty') || obsText.includes('input field') || obsText.includes('text area');
+        const hasServiceOption = obsText.includes('rate') || obsText.includes('hourly') || obsText.includes('service type') || obsText.includes('$');
+        const hasNavButton = obsText.includes('next') || obsText.includes('continue') || obsText.includes('add to') || obsText.includes('proceed');
+        const hasButton = obsText.includes('button');
 
         let action = null;
         let result = null;
 
-        // Priority: fill empty fields first, then click buttons
-        if (hasEmptyInput) {
+        // Priority: 1) Select service option, 2) Fill empty fields, 3) Click nav buttons
+        if (hasServiceOption && !hasEmptyInput) {
+          // 3. ACT: Select a service type/rate first
+          result = await stagehand.act(
+            "Click on a service option, hourly rate button, or service type to select it. Look for buttons showing prices like '$145' or service categories. Do NOT click 'BOOK AN APPOINTMENT' or close buttons."
+          );
+          action = 'select_service';
+        } else if (hasEmptyInput) {
           // 3. ACT: Fill the next empty field
           result = await stagehand.act(
             `Type the appropriate value into the first empty input field. Use: firstName=%firstName%, lastName=%lastName%, email=%email%, phone=%phone%, address=%address%, description=%description%`,
@@ -172,10 +178,10 @@ Description: ${serviceRequest.description}
             }
           );
           action = 'fill';
-        } else if (hasButton) {
+        } else if (hasNavButton || hasButton) {
           // 3. ACT: Click the next/continue button
           result = await stagehand.act(
-            "Click the primary navigation button (like 'Next', 'Continue', 'Add to booking', or 'Book service'). Do NOT click final submit or confirm buttons."
+            "Click the navigation button to proceed: 'Next', 'Continue', 'Add to booking', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons."
           );
           action = 'click';
         } else {
