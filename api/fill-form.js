@@ -119,7 +119,7 @@ Description: ${serviceRequest.description}
     // Agentic loop using observe → decide → act pattern
     const iterationResults = [];
     let iteration = 0;
-    const maxIterations = 12;
+    const maxIterations = 6; // Reduced for timeout
 
     debugLog.push({ step: "starting_agentic_loop", maxIterations, time: Date.now() });
 
