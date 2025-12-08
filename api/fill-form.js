@@ -73,36 +73,38 @@ module.exports = async function handler(req, res) {
     debugLog.push({ step: "navigated_to_website", url: page.url(), time: Date.now() });
 
     // Try to find and click a booking/quote button (these often open modals or navigate to forms)
-    const navResult = await stagehand.act("Look for and click a button or link that says 'Book Now', 'Book Online', 'Schedule Service', 'Get Estimate', 'Get a Quote', 'Request Quote', 'Free Estimate', or similar booking/quote action. Prefer prominent buttons over footer links. If none found, that's okay.");
-    debugLog.push({ step: "nav_to_booking", result: navResult, time: Date.now() });
+    const navResult = await stagehand.act("Look for and click a button or link that says 'Book Now', 'Book Online', 'Schedule Service', 'Get Estimate', 'Get a Quote', 'Request Quote', 'Free Estimate', 'Book an Appointment', or similar booking/quote action. Prefer prominent buttons over footer links. If none found, that's okay.");
+    const clickedBookingButton = navResult?.success && navResult?.message?.includes('performed successfully');
+    debugLog.push({ step: "nav_to_booking", result: navResult, clickedBookingButton, time: Date.now() });
 
     // Wait for page/modal to load (modals may have animations)
     await new Promise(r => setTimeout(r, 5000));
     debugLog.push({ step: "after_wait", url: page.url(), time: Date.now() });
 
-    // Check if there's a contact form, modal, or booking widget on this page
-    // Stagehand v3 handles iframes automatically
-    const formObservation = await stagehand.observe("Find any contact form, booking form, quote request form, service selection modal, or booking widget on this page. Look for input fields, service type buttons, hourly rate options, price selections, or booking dialogs. Include modals that show service categories, pricing options, or 'What can we do for you?' prompts.");
-    debugLog.push({ step: "observe_form", found: formObservation?.length || 0, observation: formObservation, time: Date.now() });
+    // If we successfully clicked a booking button, trust that and proceed to agentic loop
+    // The agentic loop has smarter detection for multi-step booking flows (like HouseCall Pro)
+    if (!clickedBookingButton) {
+      // No booking button was clicked, check if there's a form on the page
+      const formObservation = await stagehand.observe("Find any contact form, booking form, or input fields on this page.");
+      debugLog.push({ step: "observe_form", found: formObservation?.length || 0, time: Date.now() });
 
-    // Check if form is inside an iframe (for logging)
-    const hasIframe = formObservation?.some(obs => obs.selector?.includes('iframe'));
-    debugLog.push({ step: "iframe_check", hasIframe, time: Date.now() });
-
-    if (!formObservation || formObservation.length === 0) {
-      // Take screenshot before closing
-      const screenshotBuffer = await page.screenshot({ fullPage: true });
-      const screenshotBase64 = screenshotBuffer.toString('base64');
-      await stagehand.close();
-      res.status(200).json({
-        success: false,
-        businessId,
-        message: "No contact form found on website",
-        debug: debugLog,
-        screenshotBase64: screenshotBase64,
-      });
-      return;
+      if (!formObservation || formObservation.length === 0) {
+        // Take screenshot before closing
+        const screenshotBuffer = await page.screenshot({ fullPage: true });
+        const screenshotBase64 = screenshotBuffer.toString('base64');
+        await stagehand.close();
+        res.status(200).json({
+          success: false,
+          businessId,
+          message: "No contact form found on website",
+          debug: debugLog,
+          screenshotBase64: screenshotBase64,
+        });
+        return;
+      }
     }
+
+    debugLog.push({ step: "proceeding_to_agentic_loop", reason: clickedBookingButton ? "booking_button_clicked" : "form_found", time: Date.now() });
 
     // Customer data for form filling
     const customerData = `
