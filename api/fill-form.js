@@ -12,48 +12,27 @@ const config = {
 async function fillFormFieldsInContext(context, customerData) {
   const filled = [];
 
-  // Field mappings: patterns to match and corresponding values
+  // Simplified field mappings - fewer patterns, faster matching
   const fieldMappings = [
-    { name: 'firstName', patterns: ['first_name', 'firstname', 'fname', 'first'], value: customerData.firstName },
-    { name: 'lastName', patterns: ['last_name', 'lastname', 'lname', 'last'], value: customerData.lastName },
-    { name: 'email', patterns: ['email', 'e-mail', 'e_mail'], value: customerData.email, type: 'email' },
-    { name: 'phone', patterns: ['phone', 'tel', 'mobile', 'cell'], value: customerData.phone, type: 'tel' },
-    { name: 'address', patterns: ['address', 'street', 'addr'], value: customerData.address },
-    { name: 'city', patterns: ['city', 'town'], value: customerData.city },
-    { name: 'zip', patterns: ['zip', 'postal', 'postcode', 'post_code'], value: customerData.postalCode },
-    { name: 'state', patterns: ['state', 'province', 'region'], value: customerData.state },
-    { name: 'description', patterns: ['description', 'message', 'notes', 'details', 'comment', 'info'], value: customerData.description, isTextarea: true },
+    { name: 'firstName', selectors: ['input[name*="first" i]', 'input[id*="first" i]'], value: customerData.firstName },
+    { name: 'lastName', selectors: ['input[name*="last" i]', 'input[id*="last" i]'], value: customerData.lastName },
+    { name: 'email', selectors: ['input[type="email"]', 'input[name*="email" i]'], value: customerData.email },
+    { name: 'phone', selectors: ['input[type="tel"]', 'input[name*="phone" i]'], value: customerData.phone },
+    { name: 'address', selectors: ['input[name*="address" i]', 'input[name*="street" i]'], value: customerData.address },
+    { name: 'city', selectors: ['input[name*="city" i]'], value: customerData.city },
+    { name: 'zip', selectors: ['input[name*="zip" i]', 'input[name*="postal" i]'], value: customerData.postalCode },
+    { name: 'description', selectors: ['textarea[name*="description" i]', 'textarea[name*="message" i]', 'textarea[name*="detail" i]', 'textarea'], value: customerData.description },
   ];
 
   for (const mapping of fieldMappings) {
-    if (!mapping.value) continue; // Skip if no value provided
+    if (!mapping.value) continue;
 
-    // Build selectors for this field
-    const selectors = [];
-
-    // By name attribute (case-insensitive via multiple patterns)
-    for (const p of mapping.patterns) {
-      selectors.push(`input[name*="${p}" i]`);
-      selectors.push(`input[id*="${p}" i]`);
-      selectors.push(`input[placeholder*="${p}" i]`);
-      if (mapping.isTextarea) {
-        selectors.push(`textarea[name*="${p}" i]`);
-        selectors.push(`textarea[id*="${p}" i]`);
-        selectors.push(`textarea[placeholder*="${p}" i]`);
-      }
-    }
-
-    // By type (for email, tel)
-    if (mapping.type) {
-      selectors.push(`input[type="${mapping.type}"]`);
-    }
-
-    // Try each selector until one works
-    for (const selector of selectors) {
+    for (const selector of mapping.selectors) {
       try {
         const locator = context.locator(selector).first();
-        const isVisible = await locator.isVisible().catch(() => false);
-        if (!isVisible) continue;
+        // Quick check - count first (faster than isVisible)
+        const count = await locator.count().catch(() => 0);
+        if (count === 0) continue;
 
         // Check if already filled
         const currentValue = await locator.inputValue().catch(() => '');
@@ -62,9 +41,9 @@ async function fillFormFieldsInContext(context, customerData) {
         // Fill the field
         await locator.fill(mapping.value);
         filled.push(mapping.name);
-        break; // Move to next field mapping
+        break;
       } catch {
-        // Selector didn't match or fill failed, try next
+        // Continue to next selector
       }
     }
   }
@@ -171,8 +150,8 @@ module.exports = async function handler(req, res) {
     const clickedBookingButton = navResult?.success && navResult?.message?.includes('performed successfully');
     debugLog.push({ step: "nav_to_booking", result: navResult, clickedBookingButton, time: Date.now() });
 
-    // Wait for page/modal to load (modals may have animations)
-    await new Promise(r => setTimeout(r, 5000));
+    // Wait for page/modal to load (reduced for timeout)
+    await new Promise(r => setTimeout(r, 3000));
     debugLog.push({ step: "after_wait", url: page.url(), time: Date.now() });
 
     // If we successfully clicked a booking button, trust that and proceed to agentic loop
@@ -216,7 +195,7 @@ module.exports = async function handler(req, res) {
     // Agentic loop using observe → decide → act pattern
     const iterationResults = [];
     let iteration = 0;
-    const maxIterations = 6; // Reduced for timeout
+    const maxIterations = 5; // Reduced for timeout
 
     debugLog.push({ step: "starting_agentic_loop", maxIterations, time: Date.now() });
 
@@ -329,7 +308,7 @@ module.exports = async function handler(req, res) {
       }
 
       // Brief wait between iterations for page updates
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 500));
     }
 
     debugLog.push({ step: "agentic_loop_finished", totalIterations: iteration, results: iterationResults, time: Date.now() });
