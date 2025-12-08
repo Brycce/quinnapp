@@ -82,7 +82,7 @@ module.exports = async function handler(req, res) {
 
     // Check if there's a contact form, modal, or booking widget on this page
     // Stagehand v3 handles iframes automatically
-    const formObservation = await stagehand.observe("Find any contact form, booking form, quote request form, or popup modal on this page. Look for input fields like name, email, phone, message, address, or description. Also check for iframe booking widgets.");
+    const formObservation = await stagehand.observe("Find any contact form, booking form, quote request form, service selection modal, or booking widget on this page. Look for input fields, service type buttons, hourly rate options, price selections, or booking dialogs. Include modals that show service categories, pricing options, or 'What can we do for you?' prompts.");
     debugLog.push({ step: "observe_form", found: formObservation?.length || 0, observation: formObservation, time: Date.now() });
 
     // Check if form is inside an iframe (for logging)
