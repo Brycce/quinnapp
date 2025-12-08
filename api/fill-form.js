@@ -2,6 +2,100 @@ const config = {
   maxDuration: 120,
 };
 
+/**
+ * Deterministic form filler - fills all visible empty form fields at once
+ * Uses Playwright locators to find fields by common patterns (name, id, placeholder, type)
+ * @param {Page|Frame} context - Playwright page or frame to fill
+ * @param {Object} customerData - Customer data object with field values
+ * @returns {Promise<string[]>} - Array of field names that were filled
+ */
+async function fillFormFieldsInContext(context, customerData) {
+  const filled = [];
+
+  // Field mappings: patterns to match and corresponding values
+  const fieldMappings = [
+    { name: 'firstName', patterns: ['first_name', 'firstname', 'fname', 'first'], value: customerData.firstName },
+    { name: 'lastName', patterns: ['last_name', 'lastname', 'lname', 'last'], value: customerData.lastName },
+    { name: 'email', patterns: ['email', 'e-mail', 'e_mail'], value: customerData.email, type: 'email' },
+    { name: 'phone', patterns: ['phone', 'tel', 'mobile', 'cell'], value: customerData.phone, type: 'tel' },
+    { name: 'address', patterns: ['address', 'street', 'addr'], value: customerData.address },
+    { name: 'city', patterns: ['city', 'town'], value: customerData.city },
+    { name: 'zip', patterns: ['zip', 'postal', 'postcode', 'post_code'], value: customerData.postalCode },
+    { name: 'state', patterns: ['state', 'province', 'region'], value: customerData.state },
+    { name: 'description', patterns: ['description', 'message', 'notes', 'details', 'comment', 'info'], value: customerData.description, isTextarea: true },
+  ];
+
+  for (const mapping of fieldMappings) {
+    if (!mapping.value) continue; // Skip if no value provided
+
+    // Build selectors for this field
+    const selectors = [];
+
+    // By name attribute (case-insensitive via multiple patterns)
+    for (const p of mapping.patterns) {
+      selectors.push(`input[name*="${p}" i]`);
+      selectors.push(`input[id*="${p}" i]`);
+      selectors.push(`input[placeholder*="${p}" i]`);
+      if (mapping.isTextarea) {
+        selectors.push(`textarea[name*="${p}" i]`);
+        selectors.push(`textarea[id*="${p}" i]`);
+        selectors.push(`textarea[placeholder*="${p}" i]`);
+      }
+    }
+
+    // By type (for email, tel)
+    if (mapping.type) {
+      selectors.push(`input[type="${mapping.type}"]`);
+    }
+
+    // Try each selector until one works
+    for (const selector of selectors) {
+      try {
+        const locator = context.locator(selector).first();
+        const isVisible = await locator.isVisible().catch(() => false);
+        if (!isVisible) continue;
+
+        // Check if already filled
+        const currentValue = await locator.inputValue().catch(() => '');
+        if (currentValue && currentValue.trim() !== '') continue;
+
+        // Fill the field
+        await locator.fill(mapping.value);
+        filled.push(mapping.name);
+        break; // Move to next field mapping
+      } catch {
+        // Selector didn't match or fill failed, try next
+      }
+    }
+  }
+
+  return filled;
+}
+
+/**
+ * Fill form fields across main page and iframes
+ */
+async function fillFormFields(page, customerData) {
+  // Try main page first
+  let filled = await fillFormFieldsInContext(page, customerData);
+
+  // If nothing filled in main page, try iframes
+  if (filled.length === 0) {
+    const frames = page.frames();
+    for (const frame of frames) {
+      if (frame === page.mainFrame()) continue; // Skip main frame, already tried
+      try {
+        filled = await fillFormFieldsInContext(frame, customerData);
+        if (filled.length > 0) break; // Found fields in this frame
+      } catch {
+        // Frame not accessible, continue
+      }
+    }
+  }
+
+  return filled;
+}
+
 module.exports = async function handler(req, res) {
   // Minimal test - just return environment check
   if (req.method === "GET") {
@@ -106,17 +200,18 @@ module.exports = async function handler(req, res) {
 
     debugLog.push({ step: "proceeding_to_agentic_loop", reason: clickedBookingButton ? "booking_button_clicked" : "form_found", time: Date.now() });
 
-    // Customer data for form filling
-    const customerData = `
-First Name: ${serviceRequest.customerName.split(' ')[0]}
-Last Name: ${serviceRequest.customerName.split(' ').slice(1).join(' ') || 'Customer'}
-Email: quinn@getquinn.ai
-Phone: ${serviceRequest.phoneCallback || '250-555-0123'}
-Address: ${serviceRequest.location}
-City: Victoria
-Postal Code: V8N 5C1
-Description: ${serviceRequest.description}
-`;
+    // Customer data for form filling (object for deterministic filler)
+    const customerData = {
+      firstName: serviceRequest.customerName.split(' ')[0],
+      lastName: serviceRequest.customerName.split(' ').slice(1).join(' ') || 'Customer',
+      email: 'quinn@getquinn.ai',
+      phone: serviceRequest.phoneCallback || '250-555-0123',
+      address: serviceRequest.location,
+      city: 'Victoria',
+      postalCode: 'V8N 5C1',
+      state: 'BC',
+      description: serviceRequest.description
+    };
 
     // Agentic loop using observe → decide → act pattern
     const iterationResults = [];
@@ -176,20 +271,19 @@ Description: ${serviceRequest.description}
           );
           action = 'select_service';
         } else if (hasEmptyInput) {
-          result = await stagehand.act(
-            `Fill the first empty input field with appropriate data. Use: firstName=%firstName%, lastName=%lastName%, email=%email%, phone=%phone%, address=%address%, description=%description%`,
-            {
-              variables: {
-                firstName: serviceRequest.customerName.split(' ')[0],
-                lastName: serviceRequest.customerName.split(' ').slice(1).join(' ') || 'Customer',
-                email: 'quinn@getquinn.ai',
-                phone: serviceRequest.phoneCallback || '250-555-0123',
-                address: serviceRequest.location,
-                description: serviceRequest.description
-              }
-            }
-          );
-          action = 'fill';
+          // Use deterministic filler to fill ALL visible empty fields at once
+          const filledFields = await fillFormFields(page, customerData);
+
+          if (filledFields.length > 0) {
+            result = { success: true, message: `Filled ${filledFields.length} fields: ${filledFields.join(', ')}` };
+            action = 'fill_all';
+          } else {
+            // Fallback to AI if deterministic filler found nothing
+            result = await stagehand.act(
+              `Fill the first empty input field with appropriate data. Use: firstName=${customerData.firstName}, lastName=${customerData.lastName}, email=${customerData.email}, phone=${customerData.phone}, address=${customerData.address}, description=${customerData.description}`
+            );
+            action = 'fill_ai_fallback';
+          }
         } else if (hasNavButton || hasButton) {
           result = await stagehand.act(
             "Click the primary action button to proceed: 'Next', 'Continue', 'Book service', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons."
