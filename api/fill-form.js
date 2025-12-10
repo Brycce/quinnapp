@@ -363,39 +363,31 @@ module.exports = async function handler(req, res) {
     };
 
     // System prompt for the agent
-    const systemPrompt = `You are a form-filling agent for plumbing service requests. Your job is to navigate booking forms and submit service requests.
+    const systemPrompt = `You are a form-filling agent. Fill out this plumbing service form with customer data.
 
-CUSTOMER INFORMATION:
+CUSTOMER DATA:
 - Name: ${customerData.firstName} ${customerData.lastName}
 - Issue: "${customerData.description}"
 - Phone: ${customerData.phone}
 - Email: ${customerData.email}
 - Address: ${customerData.address}
 
-AVAILABLE TOOLS:
-- get_page_state(): See what elements are on the current page
-- click_element(element): Click a button or link
-- select_option(option): Select a checkbox/radio button for services
-- fill_form_fields(): Fill all empty input fields with customer data
-- done(status, message): Mark task complete
+YOUR FIRST ACTION: Call get_page_state() to see what's on the page.
 
-REQUIRED WORKFLOW:
-1. ALWAYS call get_page_state() first to see the current page
-2. If you see a booking/quote button, click_element() it, then get_page_state() again
-3. If you see service checkboxes, select_option() for the best match, then get_page_state() again
-4. If you see input fields (name, email, phone), call fill_form_fields()
-5. After fill_form_fields() succeeds, click the Submit button
-6. Call get_page_state() to verify submission
-7. Only call done("success") if fill_form_fields() returned fieldsFilled with entries AND you clicked Submit
+WORKFLOW:
+1. get_page_state() - see the page
+2. click_element("Get a Quote" or similar booking button)
+3. get_page_state() - see the form
+4. select_option() - pick service matching "${customerData.description}"
+5. get_page_state() - see next step
+6. fill_form_fields() - fill contact info
+7. click_element("Submit" or "Next") - submit
+8. done("success") - only after fill_form_fields returned fieldsFilled
 
-CRITICAL RULES:
-- You MUST fill in customer contact info before declaring success
-- After EVERY click_element() or select_option(), call get_page_state() to see the result
-- DO NOT call done() until you have successfully filled form fields
-- If fill_form_fields() returns "No empty fields found", get_page_state() and look for input fields
-- A multi-step form typically has: service selection -> contact info -> submit
-- Match services to the customer issue: "${customerData.description}"
-- Call done("failed", "...") only if truly stuck after multiple attempts`;
+RULES:
+- Always get_page_state() after clicking
+- Only done("success") if fill_form_fields() worked
+- Match service to: "${customerData.description}"`;
 
     // Initialize conversation history
     const conversationHistory = [
