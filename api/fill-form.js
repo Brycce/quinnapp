@@ -379,20 +379,23 @@ AVAILABLE TOOLS:
 - fill_form_fields(): Fill all empty input fields with customer data
 - done(status, message): Mark task complete
 
-STRATEGY:
-1. First call get_page_state() to see what's on the page
-2. If you see a booking/quote button, click_element() it
-3. If you see service options (checkboxes/radios), select_option() the one matching "${customerData.description}"
-4. If you see empty input fields, call fill_form_fields()
-5. Click Next/Continue/Submit buttons to proceed
-6. When form is submitted or you can't proceed, call done()
+REQUIRED WORKFLOW:
+1. ALWAYS call get_page_state() first to see the current page
+2. If you see a booking/quote button, click_element() it, then get_page_state() again
+3. If you see service checkboxes, select_option() for the best match, then get_page_state() again
+4. If you see input fields (name, email, phone), call fill_form_fields()
+5. After fill_form_fields() succeeds, click the Submit button
+6. Call get_page_state() to verify submission
+7. Only call done("success") if fill_form_fields() returned fieldsFilled with entries AND you clicked Submit
 
-IMPORTANT:
-- Select services that match the customer's issue: "${customerData.description}"
-- After selecting an option, call get_page_state() to see what's next
-- Don't click the same button twice in a row
-- Call done("success", "...") when you see a confirmation message
-- Call done("failed", "...") if you get stuck`;
+CRITICAL RULES:
+- You MUST fill in customer contact info before declaring success
+- After EVERY click_element() or select_option(), call get_page_state() to see the result
+- DO NOT call done() until you have successfully filled form fields
+- If fill_form_fields() returns "No empty fields found", get_page_state() and look for input fields
+- A multi-step form typically has: service selection -> contact info -> submit
+- Match services to the customer issue: "${customerData.description}"
+- Call done("failed", "...") only if truly stuck after multiple attempts`;
 
     // Initialize conversation history
     const conversationHistory = [
