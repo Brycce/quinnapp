@@ -288,6 +288,7 @@ module.exports = async function handler(req, res) {
     // Agentic loop using observe → decide → act pattern
     let iteration = 0;
     const maxIterations = 5; // Reduced for timeout
+    let checkboxSelectedThisSession = false; // Track if we already selected a checkbox
 
     trace.milestone('starting_agentic_loop', { maxIterations, customerData });
 
@@ -297,7 +298,7 @@ module.exports = async function handler(req, res) {
 
       try {
         // 1. OBSERVE: What's on the page?
-        const observeInstruction = "Find all interactive elements in this booking form or modal: empty input fields, text areas, dropdown menus, service/rate selection buttons, date/time pickers, and navigation buttons. Note which fields are empty vs filled. Look for options like 'Hourly Rate', service type buttons, or selectable service options.";
+        const observeInstruction = "Find all interactive elements in this booking form or modal: empty input fields, text areas, dropdown menus, checkboxes (note if each is checked or unchecked), radio buttons (note if selected), service/rate selection buttons, date/time pickers, and navigation buttons. Note which fields are empty vs filled. For checkboxes, explicitly state 'CHECKED' or 'UNCHECKED' for each one.";
 
         const observations = await stagehand.observe(observeInstruction);
         trace.observe(observeInstruction, observations);
@@ -321,18 +322,21 @@ module.exports = async function handler(req, res) {
         const hasButton = obsText.includes('button');
 
         // Detect checkboxes (for service selection forms)
-        // Only prompt to select if we see checkboxes and NONE are checked yet
-        // Once at least one is checked (e.g., "checked" appears without "unchecked" prefix), proceed to next
+        // Only prompt to select if we see checkboxes, haven't selected one yet this session
         const hasCheckbox = obsText.includes('checkbox');
-        const hasCheckedCheckbox = obsText.includes('(checked)') || (obsText.includes('checked') && obsText.includes('currently checked'));
-        const allUnchecked = hasCheckbox && !hasCheckedCheckbox;
-        const hasUncheckedCheckbox = hasCheckbox && allUnchecked;
+        // Check for any indication that a checkbox is checked (various patterns the LLM might use)
+        const hasCheckedCheckbox = obsText.match(/\bchecked\b/i) && !obsText.match(/\bunchecked\b/i) ||
+                                   obsText.includes('(checked)') ||
+                                   obsText.includes('[checked]') ||
+                                   obsText.includes('CHECKED');
+        // Only try to select if we have checkboxes, none appear checked, AND we haven't selected one yet
+        const shouldSelectCheckbox = hasCheckbox && !hasCheckedCheckbox && !checkboxSelectedThisSession;
 
         // Detect radio buttons (service type selection)
         const hasRadio = obsText.includes('radio');
         const hasUnselectedRadio = hasRadio && !obsText.includes('selected');
 
-        const hasSelectableService = hasUncheckedCheckbox || hasUnselectedRadio;
+        const hasSelectableService = shouldSelectCheckbox || hasUnselectedRadio;
 
         // Log decision context
         trace.think('Analyzing observations to decide next action', {
@@ -341,6 +345,9 @@ module.exports = async function handler(req, res) {
           hasBookService,
           hasServiceOption,
           hasSelectableService,
+          hasCheckbox,
+          hasCheckedCheckbox,
+          checkboxSelectedThisSession,
           hasNavButton,
           hasButton,
           observationSummary: obsText.substring(0, 200)
@@ -394,6 +401,13 @@ module.exports = async function handler(req, res) {
           result = await stagehand.act(instruction);
           action = 'select_service_option';
           trace.act(action, instruction, result);
+
+          // Mark that we've selected a checkbox this session - don't repeat
+          if (result?.success) {
+            checkboxSelectedThisSession = true;
+            // Wait longer for checkbox state to update in the DOM
+            await new Promise(r => setTimeout(r, 1500));
+          }
         } else if (hasNavButton || hasButton) {
           instruction = "Click the primary action button to proceed: 'Next', 'Continue', 'Book service', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons.";
           trace.think('Decided to click navigation/action button');
