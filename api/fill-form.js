@@ -138,7 +138,7 @@ const TOOLS = [
 /**
  * Execute a tool call using Stagehand/Playwright
  */
-async function executeToolCall(toolName, params, { stagehand, page, customerData, trace }) {
+async function executeToolCall(toolName, params, { stagehand, page, customerData, trace, agentState }) {
   trace.toolCall(toolName, params);
 
   let result;
@@ -180,22 +180,36 @@ async function executeToolCall(toolName, params, { stagehand, page, customerData
 
     case "fill_form_fields": {
       const filled = await fillFormFields(page, customerData);
+      if (filled.length > 0) {
+        agentState.contactFieldsFilled = true;
+        agentState.fieldsFilled = filled;
+      }
       result = {
         success: filled.length > 0,
         fieldsFilled: filled,
         message: filled.length > 0
           ? `Filled ${filled.length} fields: ${filled.join(', ')}`
-          : "No empty fields found to fill"
+          : "No empty fields found to fill - keep navigating the form until you see contact input fields"
       };
       break;
     }
 
     case "done": {
-      result = {
-        done: true,
-        status: params.status,
-        message: params.message
-      };
+      // Enforce success criteria: must have filled contact fields
+      if (params.status === "success" && !agentState.contactFieldsFilled) {
+        result = {
+          done: false,
+          rejected: true,
+          message: "Cannot mark as success - you have not filled any contact fields yet. Keep navigating and call fill_form_fields() when you see name/email/phone input fields."
+        };
+      } else {
+        result = {
+          done: true,
+          status: params.status,
+          message: params.message,
+          fieldsFilled: agentState.fieldsFilled || []
+        };
+      }
       break;
     }
 
@@ -394,6 +408,12 @@ Start by calling get_page_state() to see the page.`;
     const maxIterations = 12;
     let isDone = false;
 
+    // Track agent state to enforce success criteria
+    const agentState = {
+      contactFieldsFilled: false,
+      fieldsFilled: []
+    };
+
     trace.milestone('starting_agent_loop', { maxIterations });
 
     while (iteration < maxIterations && !isDone) {
@@ -428,7 +448,8 @@ Start by calling get_page_state() to see the page.`;
             stagehand,
             page,
             customerData,
-            trace
+            trace,
+            agentState
           });
 
           // Add tool result to conversation
