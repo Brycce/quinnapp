@@ -320,12 +320,27 @@ module.exports = async function handler(req, res) {
         const hasNavButton = obsText.includes('next') || obsText.includes('continue') || obsText.includes('proceed') || obsText.includes('submit');
         const hasButton = obsText.includes('button');
 
+        // Detect unchecked checkboxes (service selection forms)
+        const hasUncheckedCheckbox = obsText.includes('checkbox') &&
+                                     (obsText.includes('unchecked') ||
+                                      obsText.includes('not checked') ||
+                                      obsText.includes('not selected') ||
+                                      !obsText.includes('checked'));
+
+        // Detect unselected radio buttons (service type selection)
+        const hasUnselectedRadio = obsText.includes('radio') &&
+                                   (obsText.includes('unselected') ||
+                                    obsText.includes('not selected'));
+
+        const hasSelectableService = hasUncheckedCheckbox || hasUnselectedRadio;
+
         // Log decision context
         trace.think('Analyzing observations to decide next action', {
           hasEmptyInput,
           hasAddToBooking,
           hasBookService,
           hasServiceOption,
+          hasSelectableService,
           hasNavButton,
           hasButton,
           observationSummary: obsText.substring(0, 200)
@@ -372,6 +387,13 @@ module.exports = async function handler(req, res) {
             action = 'fill_ai_fallback';
             trace.act(action, instruction, result);
           }
+        } else if (hasSelectableService && !hasEmptyInput) {
+          // Select a service checkbox/radio that matches the customer's issue
+          instruction = `Look at the available options and select one that best matches this customer issue: "${customerData.description}". If you see checkboxes or radio buttons for services, click the most relevant one. If no exact match, select a general option like "Repair", "Service Call", or "Other". Do NOT click navigation buttons like Next, Continue, or Submit.`;
+          trace.think('Unchecked service options detected, selecting relevant service');
+          result = await stagehand.act(instruction);
+          action = 'select_service_option';
+          trace.act(action, instruction, result);
         } else if (hasNavButton || hasButton) {
           instruction = "Click the primary action button to proceed: 'Next', 'Continue', 'Book service', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons.";
           trace.think('Decided to click navigation/action button');
