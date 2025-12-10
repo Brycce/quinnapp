@@ -4,6 +4,7 @@
       "private": true,
       "dependencies": {
             "@ai-sdk/groq": "^2.0.32",
+        "groq-sdk": "^0.5.0",
             "@browserbasehq/stagehand": "^3.0.5",
             "@radix-ui/react-accordion": "^1.2.3",
             "@radix-ui/react-alert-dialog": "^1.1.6",
