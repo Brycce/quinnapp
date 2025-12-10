@@ -331,21 +331,24 @@ module.exports = async function handler(req, res) {
 
         // Create a signature of current checkboxes based on key words
         // This lets us detect when we've moved to a NEW set of checkboxes
-        // Normalize heavily to avoid LLM description format variations causing false positives
-        const checkboxSignature = observations
+        // Use ONLY the count of checkboxes + first significant word from each
+        // This is intentionally coarse to avoid LLM format variations
+        const checkboxDescriptions = observations
           .filter(o => o.description?.toLowerCase().includes('checkbox'))
           .map(o => {
-            // Extract just the service name, removing status words and formatting
-            return o.description?.toLowerCase()
+            // Extract just the first significant word (skip articles, prepositions)
+            const cleaned = o.description?.toLowerCase()
               .replace(/checkbox[:\s-]*/gi, '')
               .replace(/\(?(un)?checked\)?/gi, '')
-              .replace(/\s+/g, ' ')
-              .trim()
-              .substring(0, 25);
+              .replace(/^(for|the|a|an|to)\s+/gi, '')
+              .trim();
+            // Take first word only
+            return cleaned?.split(/\s+/)[0]?.substring(0, 12) || '';
           })
-          .filter(s => s && s.length > 3) // Remove empty/tiny strings
-          .sort()
-          .join('|');
+          .filter(s => s && s.length > 2);
+
+        // Signature = count + sorted first words
+        const checkboxSignature = `${checkboxDescriptions.length}:${checkboxDescriptions.sort().join(',')}`;
 
         // Only try to select if:
         // 1. We have checkboxes and none appear checked
