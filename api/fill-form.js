@@ -115,14 +115,14 @@ const TOOLS = [
     type: "function",
     function: {
       name: "done",
-      description: "Mark the task as complete. Call this when the form has been submitted or you cannot proceed further.",
+      description: "Mark the task as complete. Call this AFTER filling contact fields but BEFORE clicking Submit. Do NOT click Submit - just fill the form and call done.",
       parameters: {
         type: "object",
         properties: {
           status: {
             type: "string",
             enum: ["success", "failed"],
-            description: "Whether the form was successfully submitted"
+            description: "Whether the form fields were successfully filled"
           },
           message: {
             type: "string",
@@ -377,7 +377,7 @@ module.exports = async function handler(req, res) {
     };
 
     // System prompt for the agent - keep it simple and directive
-    const systemPrompt = `You are a form-filling agent. Your goal is to complete a multi-step service request form on a plumbing website.
+    const systemPrompt = `You are a form-filling agent. Your goal is to fill out a service request form on a plumbing website.
 
 CUSTOMER INFO:
 Name: ${customerData.firstName} ${customerData.lastName}
@@ -388,19 +388,24 @@ Address: ${customerData.address}
 
 AVAILABLE TOOLS:
 - get_page_state() - See what's on the current page
-- click_element(element) - Click buttons like "Next", "Submit", "Book Service"
+- click_element(element) - Click buttons like "Next", "Get a Quote", "Book Service"
 - select_option(option) - Select checkboxes or radio buttons matching the customer's need
 - fill_form_fields() - Fill all empty contact fields with customer data
-- done(status, message) - Call ONLY after you have filled contact fields AND submitted
+- done(status, message) - Call after filling contact fields
 
-IMPORTANT: This is a multi-step form. Keep clicking "Next" and selecting options until you reach the contact form. You must fill name/email/phone fields before calling done("success").
+IMPORTANT RULES:
+1. Navigate through form steps by clicking "Next" buttons
+2. Select service options that match the customer's need
+3. When you see contact fields (name, email, phone), call fill_form_fields()
+4. After fill_form_fields() succeeds, call done("success")
+5. DO NOT click "Submit" - stop after filling fields
 
 Start by calling get_page_state() to see the page.`;
 
     // Initialize conversation history with a user message to kick things off
     const conversationHistory = [
       { role: "system", content: systemPrompt },
-      { role: "user", content: "Please complete this multi-step form. Navigate through all steps, fill in the contact information, and submit." }
+      { role: "user", content: "Please fill out this form with the customer information. Navigate to the contact fields, fill them, then call done. Do not submit the form." }
     ];
 
     // Agent loop
