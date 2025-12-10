@@ -315,7 +315,7 @@ module.exports = async function handler(req, res) {
     });
 
     const groqClient = new AISdkClient({
-      model: groqProvider("llama-3.3-70b-versatile"),
+      model: groqProvider("meta-llama/llama-4-maverick-17b-128e-instruct"),
     });
 
     // Create Groq client for tool calling

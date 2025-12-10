@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Quinn Trace Recorder",
+  "version": "1.0",
+  "description": "Record human interactions for form-filling baseline data",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "downloads"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
