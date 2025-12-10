@@ -287,7 +287,7 @@ module.exports = async function handler(req, res) {
 
     // Agentic loop using observe → decide → act pattern
     let iteration = 0;
-    const maxIterations = 5; // Reduced for timeout
+    const maxIterations = 8; // Allow more iterations for multi-step forms
     let lastCheckboxSignature = null; // Track which checkboxes were available when we last selected
 
     trace.milestone('starting_agentic_loop', { maxIterations, customerData });
