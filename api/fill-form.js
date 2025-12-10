@@ -321,10 +321,12 @@ module.exports = async function handler(req, res) {
         const hasButton = obsText.includes('button');
 
         // Detect checkboxes (for service selection forms)
-        // If we see checkboxes and NO indication they're all checked, assume we need to select one
+        // Only prompt to select if we see checkboxes and NONE are checked yet
+        // Once at least one is checked (e.g., "checked" appears without "unchecked" prefix), proceed to next
         const hasCheckbox = obsText.includes('checkbox');
-        const allChecked = hasCheckbox && obsText.includes('checked') && !obsText.includes('unchecked');
-        const hasUncheckedCheckbox = hasCheckbox && !allChecked;
+        const hasCheckedCheckbox = obsText.includes('(checked)') || (obsText.includes('checked') && obsText.includes('currently checked'));
+        const allUnchecked = hasCheckbox && !hasCheckedCheckbox;
+        const hasUncheckedCheckbox = hasCheckbox && allUnchecked;
 
         // Detect radio buttons (service type selection)
         const hasRadio = obsText.includes('radio');
