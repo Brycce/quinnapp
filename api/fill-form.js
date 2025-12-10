@@ -288,7 +288,7 @@ module.exports = async function handler(req, res) {
     // Agentic loop using observe → decide → act pattern
     let iteration = 0;
     const maxIterations = 5; // Reduced for timeout
-    let checkboxSelectedThisSession = false; // Track if we already selected a checkbox
+    let lastCheckboxSignature = null; // Track which checkboxes were available when we last selected
 
     trace.milestone('starting_agentic_loop', { maxIterations, customerData });
 
@@ -322,15 +322,26 @@ module.exports = async function handler(req, res) {
         const hasButton = obsText.includes('button');
 
         // Detect checkboxes (for service selection forms)
-        // Only prompt to select if we see checkboxes, haven't selected one yet this session
         const hasCheckbox = obsText.includes('checkbox');
-        // Check for any indication that a checkbox is checked (various patterns the LLM might use)
+        // Check for any indication that a checkbox is checked
         const hasCheckedCheckbox = obsText.match(/\bchecked\b/i) && !obsText.match(/\bunchecked\b/i) ||
                                    obsText.includes('(checked)') ||
                                    obsText.includes('[checked]') ||
                                    obsText.includes('CHECKED');
-        // Only try to select if we have checkboxes, none appear checked, AND we haven't selected one yet
-        const shouldSelectCheckbox = hasCheckbox && !hasCheckedCheckbox && !checkboxSelectedThisSession;
+
+        // Create a signature of current checkboxes (first few words of each checkbox description)
+        // This lets us detect when we've moved to a NEW set of checkboxes
+        const checkboxSignature = observations
+          .filter(o => o.description?.toLowerCase().includes('checkbox'))
+          .map(o => o.description?.toLowerCase().substring(0, 30))
+          .sort()
+          .join('|');
+
+        // Only try to select if:
+        // 1. We have checkboxes and none appear checked
+        // 2. AND either we haven't selected before OR we're on a DIFFERENT set of checkboxes
+        const isNewCheckboxSet = !lastCheckboxSignature || lastCheckboxSignature !== checkboxSignature;
+        const shouldSelectCheckbox = hasCheckbox && !hasCheckedCheckbox && isNewCheckboxSet;
 
         // Detect radio buttons (service type selection)
         const hasRadio = obsText.includes('radio');
@@ -347,7 +358,8 @@ module.exports = async function handler(req, res) {
           hasSelectableService,
           hasCheckbox,
           hasCheckedCheckbox,
-          checkboxSelectedThisSession,
+          isNewCheckboxSet,
+          checkboxSignature: checkboxSignature?.substring(0, 60),
           hasNavButton,
           hasButton,
           observationSummary: obsText.substring(0, 200)
@@ -402,11 +414,12 @@ module.exports = async function handler(req, res) {
           action = 'select_service_option';
           trace.act(action, instruction, result);
 
-          // Mark that we've selected a checkbox this session - don't repeat
+          // Remember this checkbox set so we don't re-select on the SAME screen
+          // But if checkboxes change (new step), we'll select again
           if (result?.success) {
-            checkboxSelectedThisSession = true;
-            // Wait longer for checkbox state to update in the DOM
-            await new Promise(r => setTimeout(r, 1500));
+            lastCheckboxSignature = checkboxSignature;
+            // Wait for checkbox state to update in the DOM
+            await new Promise(r => setTimeout(r, 1000));
           }
         } else if (hasNavButton || hasButton) {
           instruction = "Click the primary action button to proceed: 'Next', 'Continue', 'Book service', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons.";
