@@ -363,7 +363,7 @@ module.exports = async function handler(req, res) {
     };
 
     // System prompt for the agent - keep it simple and directive
-    const systemPrompt = `You are a form-filling agent. Your goal is to fill out a service request form on a plumbing website.
+    const systemPrompt = `You are a form-filling agent. Your goal is to complete a multi-step service request form on a plumbing website.
 
 CUSTOMER INFO:
 Name: ${customerData.firstName} ${customerData.lastName}
@@ -374,17 +374,19 @@ Address: ${customerData.address}
 
 AVAILABLE TOOLS:
 - get_page_state() - See what's on the current page
-- click_element(element) - Click buttons like "Get a Quote", "Next", "Submit"
-- select_option(option) - Select a service checkbox matching the customer's need
+- click_element(element) - Click buttons like "Next", "Submit", "Book Service"
+- select_option(option) - Select checkboxes or radio buttons matching the customer's need
 - fill_form_fields() - Fill all empty contact fields with customer data
-- done(status, message) - Call when finished (status: "success" or "failed")
+- done(status, message) - Call ONLY after you have filled contact fields AND submitted
+
+IMPORTANT: This is a multi-step form. Keep clicking "Next" and selecting options until you reach the contact form. You must fill name/email/phone fields before calling done("success").
 
 Start by calling get_page_state() to see the page.`;
 
     // Initialize conversation history with a user message to kick things off
     const conversationHistory = [
       { role: "system", content: systemPrompt },
-      { role: "user", content: "Please fill out the form on this page with the customer information. Start by examining the page." }
+      { role: "user", content: "Please complete this multi-step form. Navigate through all steps, fill in the contact information, and submit." }
     ];
 
     // Agent loop
