@@ -3,6 +3,91 @@ const config = {
 };
 
 /**
+ * Agent trace logger - captures all agent thoughts, actions, and results
+ */
+class AgentTrace {
+  constructor() {
+    this.startTime = Date.now();
+    this.entries = [];
+  }
+
+  log(type, data) {
+    const entry = {
+      timestamp: Date.now(),
+      elapsed: Date.now() - this.startTime,
+      type,
+      ...data
+    };
+    this.entries.push(entry);
+    // Also console.log for Vercel logs
+    console.log(`[AgentTrace] ${type}:`, JSON.stringify(data));
+    return entry;
+  }
+
+  // Log a decision/thought
+  think(thought, context = {}) {
+    return this.log('think', { thought, context });
+  }
+
+  // Log an observation from Stagehand
+  observe(instruction, elements) {
+    return this.log('observe', {
+      instruction,
+      elementCount: elements?.length || 0,
+      elements: elements?.map(e => ({
+        description: e.description,
+        selector: e.selector
+      }))
+    });
+  }
+
+  // Log an action being taken
+  act(action, instruction, result = null) {
+    return this.log('act', {
+      action,
+      instruction,
+      success: result?.success,
+      message: result?.message
+    });
+  }
+
+  // Log form field filling (deterministic)
+  fill(fields, method, values = {}) {
+    return this.log('fill', {
+      method,
+      fieldsAttempted: Object.keys(values),
+      fieldsFilled: fields,
+      count: fields?.length || 0
+    });
+  }
+
+  // Log navigation
+  navigate(url, trigger) {
+    return this.log('navigate', { url, trigger });
+  }
+
+  // Log an error
+  error(message, context = null) {
+    return this.log('error', { message, context });
+  }
+
+  // Log a milestone/checkpoint
+  milestone(name, data = {}) {
+    return this.log('milestone', { name, ...data });
+  }
+
+  // Get the full trace
+  getTrace() {
+    return {
+      startTime: new Date(this.startTime).toISOString(),
+      duration: Date.now() - this.startTime,
+      entryCount: this.entries.length,
+      entries: this.entries
+    };
+  }
+}
+
+/**
  * Deterministic form filler - fills all visible empty form fields at once
  * Uses Playwright locators to find fields by common patterns (name, id, placeholder, type)
  * @param {Page|Frame} context - Playwright page or frame to fill
@@ -101,15 +186,15 @@ module.exports = async function handler(req, res) {
   }
 
   let stagehand = null;
-  const debugLog = [];
+  const trace = new AgentTrace();
 
   try {
-    debugLog.push({ step: "init", time: Date.now() });
+    trace.milestone('init', { website, businessName, businessId });
 
     // Dynamic imports for ESM modules
     const { Stagehand, AISdkClient } = await import("@browserbasehq/stagehand");
     const { createGroq } = await import("@ai-sdk/groq");
-    debugLog.push({ step: "imports_loaded", time: Date.now() });
+    trace.milestone('imports_loaded');
 
     // Create Groq client for Stagehand
     const groqProvider = createGroq({
@@ -137,31 +222,39 @@ module.exports = async function handler(req, res) {
     });
 
     await stagehand.init();
-    debugLog.push({ step: "stagehand_initialized", time: Date.now() });
+    trace.milestone('stagehand_initialized');
 
     const page = stagehand.context.pages()[0];
 
     // Navigate to the business website
+    trace.navigate(website, 'initial_navigation');
     await page.goto(website, { waitUntil: "domcontentloaded", timeout: 30000 });
-    debugLog.push({ step: "navigated_to_website", url: page.url(), time: Date.now() });
+    trace.milestone('page_loaded', { url: page.url() });
 
     // Try to find and click a booking/quote button (these often open modals or navigate to forms)
-    const navResult = await stagehand.act("Look for and click a button or link that says 'Book Now', 'Book Online', 'Schedule Service', 'Get Estimate', 'Get a Quote', 'Request Quote', 'Free Estimate', 'Book an Appointment', or similar booking/quote action. Prefer prominent buttons over footer links. If none found, that's okay.");
+    const bookingInstruction = "Look for and click a button or link that says 'Book Now', 'Book Online', 'Schedule Service', 'Get Estimate', 'Get a Quote', 'Request Quote', 'Free Estimate', 'Book an Appointment', or similar booking/quote action. Prefer prominent buttons over footer links. If none found, that's okay.";
+    trace.think('Looking for booking/quote button on homepage', { instruction: bookingInstruction });
+
+    const navResult = await stagehand.act(bookingInstruction);
     const clickedBookingButton = navResult?.success && navResult?.message?.includes('performed successfully');
-    debugLog.push({ step: "nav_to_booking", result: navResult, clickedBookingButton, time: Date.now() });
+    trace.act('find_booking_button', bookingInstruction, navResult);
 
     // Wait for page/modal to load (reduced for timeout)
     await new Promise(r => setTimeout(r, 3000));
-    debugLog.push({ step: "after_wait", url: page.url(), time: Date.now() });
+    trace.milestone('after_booking_click_wait', { url: page.url(), clickedBookingButton });
 
     // If we successfully clicked a booking button, trust that and proceed to agentic loop
     // The agentic loop has smarter detection for multi-step booking flows (like HouseCall Pro)
     if (!clickedBookingButton) {
       // No booking button was clicked, check if there's a form on the page
-      const formObservation = await stagehand.observe("Find any contact form, booking form, or input fields on this page.");
-      debugLog.push({ step: "observe_form", found: formObservation?.length || 0, time: Date.now() });
+      const formObserveInstruction = "Find any contact form, booking form, or input fields on this page.";
+      trace.think('No booking button clicked, checking for forms on page');
+
+      const formObservation = await stagehand.observe(formObserveInstruction);
+      trace.observe(formObserveInstruction, formObservation);
 
       if (!formObservation || formObservation.length === 0) {
+        trace.milestone('no_form_found', { url: page.url() });
         // Take screenshot before closing
         const screenshotBuffer = await page.screenshot({ fullPage: true });
         const screenshotBase64 = screenshotBuffer.toString('base64');
@@ -170,14 +263,14 @@ module.exports = async function handler(req, res) {
           success: false,
           businessId,
           message: "No contact form found on website",
-          debug: debugLog,
+          trace: trace.getTrace(),
           screenshotBase64: screenshotBase64,
         });
         return;
       }
     }
 
-    debugLog.push({ step: "proceeding_to_agentic_loop", reason: clickedBookingButton ? "booking_button_clicked" : "form_found", time: Date.now() });
+    trace.milestone('proceeding_to_agentic_loop', { reason: clickedBookingButton ? "booking_button_clicked" : "form_found" });
 
     // Customer data for form filling (object for deterministic filler)
     const customerData = {
@@ -193,31 +286,24 @@ module.exports = async function handler(req, res) {
     };
 
     // Agentic loop using observe → decide → act pattern
-    const iterationResults = [];
     let iteration = 0;
     const maxIterations = 5; // Reduced for timeout
 
-    debugLog.push({ step: "starting_agentic_loop", maxIterations, time: Date.now() });
+    trace.milestone('starting_agentic_loop', { maxIterations, customerData });
 
     while (iteration < maxIterations) {
       iteration++;
-      debugLog.push({ step: `iteration_${iteration}_start`, time: Date.now() });
+      trace.milestone(`iteration_${iteration}_start`, { url: page.url() });
 
       try {
         // 1. OBSERVE: What's on the page?
-        const observations = await stagehand.observe(
-          "Find all interactive elements in this booking form or modal: empty input fields, text areas, dropdown menus, service/rate selection buttons, date/time pickers, and navigation buttons. Note which fields are empty vs filled. Look for options like 'Hourly Rate', service type buttons, or selectable service options."
-        );
+        const observeInstruction = "Find all interactive elements in this booking form or modal: empty input fields, text areas, dropdown menus, service/rate selection buttons, date/time pickers, and navigation buttons. Note which fields are empty vs filled. Look for options like 'Hourly Rate', service type buttons, or selectable service options.";
 
-        debugLog.push({
-          step: `iteration_${iteration}_observed`,
-          elements: observations?.length || 0,
-          types: observations?.map(o => o.description?.substring(0, 50)),
-          time: Date.now()
-        });
+        const observations = await stagehand.observe(observeInstruction);
+        trace.observe(observeInstruction, observations);
 
         if (!observations || observations.length === 0) {
-          debugLog.push({ step: "no_elements_found", iteration, time: Date.now() });
+          trace.think('No interactive elements found, ending loop');
           break;
         }
 
@@ -234,84 +320,90 @@ module.exports = async function handler(req, res) {
         const hasNavButton = obsText.includes('next') || obsText.includes('continue') || obsText.includes('proceed') || obsText.includes('submit');
         const hasButton = obsText.includes('button');
 
+        // Log decision context
+        trace.think('Analyzing observations to decide next action', {
+          hasEmptyInput,
+          hasAddToBooking,
+          hasBookService,
+          hasServiceOption,
+          hasNavButton,
+          hasButton,
+          observationSummary: obsText.substring(0, 200)
+        });
+
         let action = null;
         let result = null;
+        let instruction = null;
 
         // Priority: 1) Click "Add to booking", 2) Click "Book service", 3) Select service, 4) Fill empty fields, 5) Click nav
         if (hasAddToBooking) {
-          result = await stagehand.act("Click the 'Add to booking' button to proceed.");
+          instruction = "Click the 'Add to booking' button to proceed.";
+          trace.think('Decided to click Add to booking button');
+          result = await stagehand.act(instruction);
           action = 'add_to_booking';
+          trace.act(action, instruction, result);
         } else if (hasBookService) {
-          result = await stagehand.act("Click the 'Book service' button to proceed to the next step.");
+          instruction = "Click the 'Book service' button to proceed to the next step.";
+          trace.think('Decided to click Book service button');
+          result = await stagehand.act(instruction);
           action = 'book_service';
+          trace.act(action, instruction, result);
         } else if (hasServiceOption && !hasEmptyInput) {
-          result = await stagehand.act(
-            "Click on a service option, hourly rate button, or service type to select it. Look for buttons showing prices like '$145' or service categories. Do NOT click 'BOOK AN APPOINTMENT' or close buttons."
-          );
+          instruction = "Click on a service option, hourly rate button, or service type to select it. Look for buttons showing prices like '$145' or service categories. Do NOT click 'BOOK AN APPOINTMENT' or close buttons.";
+          trace.think('Decided to select a service option');
+          result = await stagehand.act(instruction);
           action = 'select_service';
+          trace.act(action, instruction, result);
         } else if (hasEmptyInput) {
+          trace.think('Empty input fields detected, using deterministic form filler');
+
           // Use deterministic filler to fill ALL visible empty fields at once
           const filledFields = await fillFormFields(page, customerData);
 
           if (filledFields.length > 0) {
             result = { success: true, message: `Filled ${filledFields.length} fields: ${filledFields.join(', ')}` };
-            action = 'fill_all';
+            action = 'fill_deterministic';
+            trace.fill(filledFields, 'deterministic', customerData);
           } else {
             // Fallback to AI if deterministic filler found nothing
-            result = await stagehand.act(
-              `Fill the first empty input field with appropriate data. Use: firstName=${customerData.firstName}, lastName=${customerData.lastName}, email=${customerData.email}, phone=${customerData.phone}, address=${customerData.address}, description=${customerData.description}`
-            );
+            instruction = `Fill the first empty input field with appropriate data. Use: firstName=${customerData.firstName}, lastName=${customerData.lastName}, email=${customerData.email}, phone=${customerData.phone}, address=${customerData.address}, description=${customerData.description}`;
+            trace.think('Deterministic filler found no fields, falling back to AI');
+            result = await stagehand.act(instruction);
             action = 'fill_ai_fallback';
+            trace.act(action, instruction, result);
           }
         } else if (hasNavButton || hasButton) {
-          result = await stagehand.act(
-            "Click the primary action button to proceed: 'Next', 'Continue', 'Book service', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons."
-          );
-          action = 'click';
+          instruction = "Click the primary action button to proceed: 'Next', 'Continue', 'Book service', 'Proceed', or 'Submit'. Do NOT click 'BOOK AN APPOINTMENT', close buttons, or back buttons.";
+          trace.think('Decided to click navigation/action button');
+          result = await stagehand.act(instruction);
+          action = 'click_nav';
+          trace.act(action, instruction, result);
         } else {
-          debugLog.push({ step: "no_actionable_elements", iteration, time: Date.now() });
+          trace.think('No actionable elements detected, ending loop');
           break;
         }
 
-        iterationResults.push({
-          iteration,
+        trace.milestone(`iteration_${iteration}_complete`, {
           action,
-          result: result?.message || 'action taken',
-          time: Date.now()
-        });
-
-        debugLog.push({
-          step: `iteration_${iteration}_complete`,
-          action,
-          result: result?.message?.substring(0, 100),
-          time: Date.now()
+          resultMessage: result?.message
         });
 
         // Check if we're done
         const resultMsg = (result?.message || '').toLowerCase();
         if (resultMsg.includes('no ') || resultMsg.includes('cannot') || resultMsg.includes('already')) {
-          debugLog.push({ step: "loop_complete_detected", iteration, time: Date.now() });
+          trace.think('Loop completion detected from result message', { resultMsg });
           break;
         }
 
       } catch (e) {
-        iterationResults.push({
-          iteration,
-          error: e.message,
-          time: Date.now()
-        });
-        debugLog.push({
-          step: `iteration_${iteration}_error`,
-          error: e.message?.substring(0, 100),
-          time: Date.now()
-        });
+        trace.error(e.message, `iteration_${iteration}`);
       }
 
       // Brief wait between iterations for page updates
       await new Promise(r => setTimeout(r, 500));
     }
 
-    debugLog.push({ step: "agentic_loop_finished", totalIterations: iteration, results: iterationResults, time: Date.now() });
+    trace.milestone('agentic_loop_finished', { totalIterations: iteration });
 
     // Brief pause to let any animations settle
     await new Promise(r => setTimeout(r, 500));
@@ -319,10 +411,11 @@ module.exports = async function handler(req, res) {
     // Take screenshot of current state (don't scroll - we want to see the form/modal)
     const screenshotBuffer = await page.screenshot({ fullPage: true });
     const screenshotBase64 = screenshotBuffer.toString('base64');
-    debugLog.push({ step: "screenshot_taken", time: Date.now() });
+    trace.milestone('screenshot_taken');
 
     // Get current URL
     const currentUrl = page.url();
+    trace.milestone('complete', { finalUrl: currentUrl });
 
     // TODO: Uncomment to actually submit forms in production
     // await stagehand.act("Click the submit button, send button, or any button that submits the contact form.");
@@ -335,8 +428,8 @@ module.exports = async function handler(req, res) {
       businessId,
       message: `Form filled successfully for ${businessName}`,
       formUrl: currentUrl,
-      debug: debugLog,
-      screenshotBase64: screenshotBase64, // Full screenshot for viewing
+      trace: trace.getTrace(),
+      screenshotBase64: screenshotBase64,
     });
 
   } catch (error) {
@@ -346,13 +439,14 @@ module.exports = async function handler(req, res) {
       } catch {}
     }
 
+    trace.error(error.message, error.stack?.substring(0, 300));
     console.error("Form fill error:", error);
+
     res.status(200).json({
       success: false,
       businessId,
       message: error.message || "Form filling failed",
-      errorStack: error.stack?.substring(0, 500),
-      debug: debugLog || [],
+      trace: trace.getTrace(),
     });
   }
 };
