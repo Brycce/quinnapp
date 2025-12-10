@@ -362,36 +362,29 @@ module.exports = async function handler(req, res) {
       description: serviceRequest.description
     };
 
-    // System prompt for the agent
-    const systemPrompt = `You are a form-filling agent. Fill out this plumbing service form with customer data.
+    // System prompt for the agent - keep it simple and directive
+    const systemPrompt = `You are a form-filling agent. Your goal is to fill out a service request form on a plumbing website.
 
-CUSTOMER DATA:
-- Name: ${customerData.firstName} ${customerData.lastName}
-- Issue: "${customerData.description}"
-- Phone: ${customerData.phone}
-- Email: ${customerData.email}
-- Address: ${customerData.address}
+CUSTOMER INFO:
+Name: ${customerData.firstName} ${customerData.lastName}
+Service needed: ${customerData.description}
+Phone: ${customerData.phone}
+Email: ${customerData.email}
+Address: ${customerData.address}
 
-YOUR FIRST ACTION: Call get_page_state() to see what's on the page.
+AVAILABLE TOOLS:
+- get_page_state() - See what's on the current page
+- click_element(element) - Click buttons like "Get a Quote", "Next", "Submit"
+- select_option(option) - Select a service checkbox matching the customer's need
+- fill_form_fields() - Fill all empty contact fields with customer data
+- done(status, message) - Call when finished (status: "success" or "failed")
 
-WORKFLOW:
-1. get_page_state() - see the page
-2. click_element("Get a Quote" or similar booking button)
-3. get_page_state() - see the form
-4. select_option() - pick service matching "${customerData.description}"
-5. get_page_state() - see next step
-6. fill_form_fields() - fill contact info
-7. click_element("Submit" or "Next") - submit
-8. done("success") - only after fill_form_fields returned fieldsFilled
+Start by calling get_page_state() to see the page.`;
 
-RULES:
-- Always get_page_state() after clicking
-- Only done("success") if fill_form_fields() worked
-- Match service to: "${customerData.description}"`;
-
-    // Initialize conversation history
+    // Initialize conversation history with a user message to kick things off
     const conversationHistory = [
-      { role: "system", content: systemPrompt }
+      { role: "system", content: systemPrompt },
+      { role: "user", content: "Please fill out the form on this page with the customer information. Start by examining the page." }
     ];
 
     // Agent loop
