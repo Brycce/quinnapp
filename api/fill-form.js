@@ -329,11 +329,21 @@ module.exports = async function handler(req, res) {
                                    obsText.includes('[checked]') ||
                                    obsText.includes('CHECKED');
 
-        // Create a signature of current checkboxes (first few words of each checkbox description)
+        // Create a signature of current checkboxes based on key words
         // This lets us detect when we've moved to a NEW set of checkboxes
+        // Normalize heavily to avoid LLM description format variations causing false positives
         const checkboxSignature = observations
           .filter(o => o.description?.toLowerCase().includes('checkbox'))
-          .map(o => o.description?.toLowerCase().substring(0, 30))
+          .map(o => {
+            // Extract just the service name, removing status words and formatting
+            return o.description?.toLowerCase()
+              .replace(/checkbox[:\s-]*/gi, '')
+              .replace(/\(?(un)?checked\)?/gi, '')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .substring(0, 25);
+          })
+          .filter(s => s && s.length > 3) // Remove empty/tiny strings
           .sort()
           .join('|');
 
