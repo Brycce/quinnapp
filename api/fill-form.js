@@ -62,12 +62,18 @@ module.exports = async function handler(req, res) {
   }
 
   const body = req.body;
-  const { businessId, businessName, website, serviceRequest } = body || {};
+  const { businessId, businessName, website, serviceRequest, trackingToken } = body || {};
 
   if (!website || !serviceRequest) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
+
+  // Generate unique email for this request
+  // If trackingToken provided, use it for routing responses back to the right request
+  const requestEmail = trackingToken
+    ? `${trackingToken}@callquinn.com`
+    : 'quinn@getquinn.ai';
 
   let stagehand = null;
   const trace = new AgentTrace();
@@ -83,7 +89,7 @@ module.exports = async function handler(req, res) {
     const customerData = {
       firstName: serviceRequest.customerName.split(' ')[0],
       lastName: serviceRequest.customerName.split(' ').slice(1).join(' ') || 'Customer',
-      email: 'quinn@getquinn.ai',
+      email: requestEmail,  // Use tracking token email for routing responses
       phone: serviceRequest.phoneCallback || '250-555-0123',
       address: serviceRequest.location,
       city: 'Victoria',
@@ -91,6 +97,8 @@ module.exports = async function handler(req, res) {
       state: 'BC',
       description: serviceRequest.description
     };
+
+    trace.milestone('customer_data', { email: requestEmail, trackingToken });
 
     // Initialize Stagehand with Browserbase
     // Using default OpenAI model - Stagehand handles the LLM integration
