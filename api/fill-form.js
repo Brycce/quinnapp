@@ -71,8 +71,9 @@ module.exports = async function handler(req, res) {
 
   // Generate unique email for this request
   // If trackingToken provided, use it for routing responses back to the right request
+  // Using quotes.callquinn.com subdomain to separate tracking emails from regular emails
   const requestEmail = trackingToken
-    ? `${trackingToken}@callquinn.com`
+    ? `${trackingToken}@quotes.callquinn.com`
     : 'quinn@getquinn.ai';
 
   let stagehand = null;

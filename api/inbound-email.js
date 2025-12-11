@@ -49,8 +49,8 @@ export default async function handler(req, res) {
     });
 
     // Extract tracking token from recipient email
-    // Format: {tracking_token}@callquinn.com or req_{tracking_token}@callquinn.com
-    const emailMatch = recipient?.match(/^(?:req_)?([^@]+)@callquinn\.com$/i);
+    // Format: {tracking_token}@quotes.callquinn.com (subdomain for tracking emails)
+    const emailMatch = recipient?.match(/^([^@]+)@quotes\.callquinn\.com$/i);
     const trackingToken = emailMatch?.[1];
 
     if (!trackingToken) {
