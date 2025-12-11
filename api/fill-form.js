@@ -100,9 +100,7 @@ module.exports = async function handler(req, res) {
       enableCaching: false,
       disablePino: true,
       modelName: "gpt-4o",
-      modelClientOptions: {
-        apiKey: process.env.OPENAI_API_KEY,
-      },
+      modelApiKey: process.env.OPENAI_API_KEY,
       browserbaseSessionCreateParams: {
         browserSettings: {
           solveCaptchas: true,
@@ -123,9 +121,11 @@ module.exports = async function handler(req, res) {
     // Use Stagehand's native agent for autonomous form filling
     trace.milestone('starting_agent');
 
+    // Agent inherits model config from Stagehand instance
+    // Can override with model: { modelName, apiKey } if needed
     const agent = stagehand.agent({
-      modelName: "gpt-4o",
-      modelClientOptions: {
+      model: {
+        modelName: "openai/gpt-4o",
         apiKey: process.env.OPENAI_API_KEY,
       },
     });
