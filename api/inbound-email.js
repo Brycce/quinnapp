@@ -1,10 +1,211 @@
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import Groq from "groq-sdk";
+import formData from "form-data";
+import Mailgun from "mailgun.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+// Initialize Mailgun for sending replies
+const mailgun = new Mailgun(formData);
+const mg = process.env.MAILGUN_API_KEY
+  ? mailgun.client({ username: "api", key: process.env.MAILGUN_API_KEY })
+  : null;
+
+/**
+ * Analyze contractor email using Groq LLM to detect questions vs quotes
+ */
+async function analyzeContractorEmail(emailData, serviceRequest) {
+  const additionalContext = serviceRequest?.additional_context || [];
+
+  const prompt = `Analyze this contractor email response to a service request.
+
+SERVICE REQUEST CONTEXT:
+- Service Type: ${serviceRequest?.service_type || "Unknown"}
+- Description: ${serviceRequest?.description || "Not provided"}
+- Location: ${serviceRequest?.caller_address || serviceRequest?.zip_code || "Not provided"}
+- Additional context already gathered: ${JSON.stringify(additionalContext)}
+
+CONTRACTOR EMAIL:
+From: ${emailData.sender}
+Subject: ${emailData.subject}
+Body: ${emailData.stripped_text || emailData.body_plain || ""}
+
+Your task:
+1. Classify this email as one of: "question", "quote", or "general"
+   - "question" = contractor is asking for more information they need to provide a quote
+   - "quote" = contractor is providing pricing, estimate, availability, or offering to do the work
+   - "general" = acknowledgment, follow-up scheduling, or other communication
+
+2. If it's a "question":
+   - Extract the specific question they're asking (rephrase it clearly for the homeowner)
+   - Check if we can answer it from the context above
+   - If answerable, provide the answer
+
+Respond ONLY with valid JSON (no markdown, no explanation):
+{
+  "type": "question" | "quote" | "general",
+  "question": "string - the question being asked (only if type is question)",
+  "canAnswer": boolean - true if we have the info to answer (only if type is question),
+  "answer": "string - the answer to provide (only if canAnswer is true)",
+  "summary": "string - brief summary of what the contractor said"
+}`;
+
+  try {
+    const response = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 500,
+    });
+
+    const content = response.choices[0]?.message?.content || "{}";
+    // Clean up response - remove markdown code blocks if present
+    const cleanContent = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    return JSON.parse(cleanContent);
+  } catch (error) {
+    console.error("Error analyzing email with Groq:", error);
+    return { type: "general", summary: "Could not analyze email" };
+  }
+}
+
+/**
+ * Send reply email to contractor via Mailgun
+ */
+async function sendContractorReply(originalEmail, answer, serviceRequest) {
+  if (!mg) {
+    console.error("Mailgun not configured - cannot send reply");
+    return false;
+  }
+
+  const customerName = serviceRequest?.caller_name?.split(" ")[0] || "the homeowner";
+
+  const emailBody = `Hi,
+
+Thanks for getting back to us about the ${serviceRequest?.service_type || "service"} request!
+
+To answer your question: ${answer}
+
+Let me know if you need any other details to provide a quote.
+
+Best regards,
+Quinn (on behalf of ${customerName})`;
+
+  try {
+    await mg.messages.create("quotes.callquinn.com", {
+      from: originalEmail.recipient, // Reply from the same tracking email
+      to: originalEmail.sender,
+      subject: `Re: ${originalEmail.subject || "Service Request"}`,
+      text: emailBody,
+    });
+
+    console.log("Sent reply to contractor:", originalEmail.sender);
+    return true;
+  } catch (error) {
+    console.error("Error sending contractor reply:", error);
+    return false;
+  }
+}
+
+/**
+ * Trigger SMS to homeowner asking for additional info
+ * This calls the Python backend which handles Twilio SMS
+ */
+async function triggerHomeownerQuestion(serviceRequestId, question, inboundEmailId, discoveredBusinessId) {
+  // Store the pending question in the database
+  const { data: pendingQuestion, error } = await supabase
+    .from("pending_questions")
+    .insert({
+      service_request_id: serviceRequestId,
+      inbound_email_id: inboundEmailId,
+      discovered_business_id: discoveredBusinessId,
+      question: question,
+      status: "pending",
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error creating pending question:", error);
+    return false;
+  }
+
+  // Get service request to find homeowner phone
+  const { data: serviceRequest } = await supabase
+    .from("service_requests")
+    .select("caller_phone, caller_name")
+    .eq("id", serviceRequestId)
+    .single();
+
+  if (!serviceRequest?.caller_phone) {
+    console.error("No phone number for service request:", serviceRequestId);
+    return false;
+  }
+
+  // Call Python backend to send SMS
+  // The backend URL depends on environment
+  const backendUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000";
+
+  try {
+    const response = await fetch(`${backendUrl}/api/trigger-question-sms`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service_request_id: serviceRequestId,
+        pending_question_id: pendingQuestion.id,
+        question: question,
+        to_phone: serviceRequest.caller_phone,
+        customer_name: serviceRequest.caller_name,
+      }),
+    });
+
+    if (response.ok) {
+      // Update pending question status to "asked"
+      await supabase
+        .from("pending_questions")
+        .update({ status: "asked", asked_at: new Date().toISOString() })
+        .eq("id", pendingQuestion.id);
+
+      console.log("Triggered SMS to homeowner for question:", question);
+      return true;
+    } else {
+      console.error("Failed to trigger SMS:", await response.text());
+      return false;
+    }
+  } catch (error) {
+    console.error("Error triggering SMS:", error);
+    return false;
+  }
+}
+
+/**
+ * Handle quote received - update status and notify homeowner
+ */
+async function handleQuoteReceived(email, serviceRequestId, analysis) {
+  // Update discovered business status if we have a match
+  if (email.discovered_business_id) {
+    await supabase
+      .from("discovered_businesses")
+      .update({ outreach_status: "responded" })
+      .eq("id", email.discovered_business_id);
+  }
+
+  // Update email status
+  await supabase
+    .from("inbound_emails")
+    .update({ status: "quote_received" })
+    .eq("id", email.id);
+
+  console.log("Quote received from contractor:", email.sender);
+  // Future: Send notification SMS to homeowner about the quote
+}
 
 // Mailgun sends inbound emails as multipart/form-data POST requests
 export default async function handler(req, res) {
@@ -14,7 +215,6 @@ export default async function handler(req, res) {
 
   try {
     // Mailgun webhook verification (optional but recommended)
-    // The signature is: timestamp + token + api_key hashed
     const { timestamp, token, signature } = req.body;
 
     if (process.env.MAILGUN_WEBHOOK_SIGNING_KEY && timestamp && token && signature) {
@@ -31,13 +231,13 @@ export default async function handler(req, res) {
 
     // Extract email data from Mailgun's POST payload
     const {
-      recipient,        // e.g., "req_abc123@callquinn.com"
-      sender,           // e.g., "plumber@example.com"
-      from: fromHeader, // Full "From" header with name
+      recipient,
+      sender,
+      from: fromHeader,
       subject,
       "body-plain": bodyPlain,
       "body-html": bodyHtml,
-      "stripped-text": strippedText,  // Email body without signatures/quotes
+      "stripped-text": strippedText,
       "attachment-count": attachmentCount,
     } = req.body;
 
@@ -49,7 +249,6 @@ export default async function handler(req, res) {
     });
 
     // Extract tracking token from recipient email
-    // Format: {tracking_token}@quotes.callquinn.com (subdomain for tracking emails)
     const emailMatch = recipient?.match(/^([^@]+)@quotes\.callquinn\.com$/i);
     const trackingToken = emailMatch?.[1];
 
@@ -60,17 +259,18 @@ export default async function handler(req, res) {
     // Look up service request by tracking token
     let serviceRequestId = null;
     let discoveredBusinessId = null;
+    let serviceRequest = null;
 
     if (trackingToken) {
-      // First try to find a service request with this tracking token
-      const { data: serviceRequest } = await supabase
+      const { data: sr } = await supabase
         .from("service_requests")
-        .select("id")
+        .select("id, service_type, description, caller_address, zip_code, caller_name, caller_phone, additional_context")
         .eq("tracking_token", trackingToken)
         .single();
 
-      if (serviceRequest) {
-        serviceRequestId = serviceRequest.id;
+      if (sr) {
+        serviceRequest = sr;
+        serviceRequestId = sr.id;
 
         // Try to match sender email to a discovered business
         const { data: business } = await supabase
@@ -89,8 +289,6 @@ export default async function handler(req, res) {
     // Parse attachments if present
     let attachments = [];
     if (parseInt(attachmentCount) > 0) {
-      // Mailgun sends attachments as attachment-1, attachment-2, etc.
-      // For now, just log the count - full attachment handling would need file storage
       attachments = [{ count: parseInt(attachmentCount) }];
     }
 
@@ -125,18 +323,75 @@ export default async function handler(req, res) {
       trackingToken,
     });
 
-    // TODO: Future enhancements:
-    // 1. Send notification to user when quote/estimate is received
-    // 2. Parse email content to extract pricing information
-    // 3. Update discovered_business outreach_status to "responded"
+    // If we have a matched service request, analyze the email
+    let analysisResult = null;
+    if (serviceRequestId && serviceRequest) {
+      const emailData = {
+        sender,
+        subject,
+        stripped_text: strippedText,
+        body_plain: bodyPlain,
+        recipient,
+      };
+
+      analysisResult = await analyzeContractorEmail(emailData, serviceRequest);
+      console.log("Email analysis result:", analysisResult);
+
+      // Handle based on email type
+      if (analysisResult.type === "question") {
+        if (analysisResult.canAnswer && analysisResult.answer) {
+          // We can answer from existing context - auto-reply
+          const sent = await sendContractorReply(
+            { ...email, recipient, sender, subject },
+            analysisResult.answer,
+            serviceRequest
+          );
+
+          if (sent) {
+            // Store a pending_question record marked as already replied
+            await supabase.from("pending_questions").insert({
+              service_request_id: serviceRequestId,
+              inbound_email_id: email.id,
+              discovered_business_id: discoveredBusinessId,
+              question: analysisResult.question,
+              answer: analysisResult.answer,
+              status: "replied",
+              answered_at: new Date().toISOString(),
+            });
+
+            // Update email status
+            await supabase
+              .from("inbound_emails")
+              .update({ status: "auto_replied" })
+              .eq("id", email.id);
+          }
+        } else {
+          // Need to ask homeowner - trigger SMS
+          await triggerHomeownerQuestion(
+            serviceRequestId,
+            analysisResult.question,
+            email.id,
+            discoveredBusinessId
+          );
+
+          // Update email status
+          await supabase
+            .from("inbound_emails")
+            .update({ status: "awaiting_info" })
+            .eq("id", email.id);
+        }
+      } else if (analysisResult.type === "quote") {
+        await handleQuoteReceived(email, serviceRequestId, analysisResult);
+      }
+    }
 
     // Mailgun expects 200 OK to confirm receipt
     return res.status(200).json({
       success: true,
       emailId: email.id,
       matched: !!serviceRequestId,
+      analysis: analysisResult,
     });
-
   } catch (error) {
     console.error("Inbound email error:", error);
     return res.status(500).json({ error: "Internal server error" });

@@ -247,20 +247,154 @@ async def twilio_incoming_sms(request: Request):
             "status": "received"
         }).execute()
 
-        # Get conversation history
-        history = supabase.table("sms_messages").select("*").eq(
+        # Check if there's a pending question waiting for an answer
+        pending = supabase.table("pending_questions").select("*").eq(
             "service_request_id", request_id
-        ).order("created_at").execute()
+        ).eq("status", "asked").order("asked_at", desc=True).limit(1).execute()
 
-        # Generate context-aware response
-        response_text = generate_sms_response(service_request, history.data, message_body)
+        if pending.data:
+            # This SMS is likely an answer to our question
+            pq = pending.data[0]
 
-        # Send response
-        await send_sms_reply(request_id, from_phone, response_text)
+            # Store the answer in additional_context
+            current_context = service_request.get("additional_context") or []
+            current_context.append({
+                "question": pq["question"],
+                "answer": message_body,
+                "source": "sms",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+            supabase.table("service_requests").update({
+                "additional_context": current_context
+            }).eq("id", request_id).execute()
+
+            # Update pending question
+            supabase.table("pending_questions").update({
+                "status": "answered",
+                "answer": message_body,
+                "answered_at": datetime.utcnow().isoformat()
+            }).eq("id", pq["id"]).execute()
+
+            # Trigger reply to contractor via Node.js endpoint
+            await trigger_contractor_reply(pq["id"], pq["question"], message_body)
+
+            # Confirm to homeowner
+            response_text = "Got it, thanks! I'll let the contractor know."
+            await send_sms_reply(request_id, from_phone, response_text)
+        else:
+            # No pending question - regular conversation flow
+            # Get conversation history
+            history = supabase.table("sms_messages").select("*").eq(
+                "service_request_id", request_id
+            ).order("created_at").execute()
+
+            # Generate context-aware response
+            response_text = generate_sms_response(service_request, history.data, message_body)
+
+            # Send response
+            await send_sms_reply(request_id, from_phone, response_text)
 
     # Return TwiML response
     twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
     return Response(content=twiml, media_type="application/xml")
+
+
+@app.post("/api/trigger-question-sms")
+async def trigger_question_sms(request: Request):
+    """
+    Trigger SMS to homeowner asking a contractor's question.
+    Called from inbound-email.js when a contractor asks for more info.
+    """
+    payload = await request.json()
+    service_request_id = payload.get("service_request_id")
+    pending_question_id = payload.get("pending_question_id")
+    question = payload.get("question")
+    to_phone = payload.get("to_phone")
+    customer_name = payload.get("customer_name", "")
+
+    if not all([service_request_id, question, to_phone]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+
+    supabase = get_supabase()
+
+    # Format a friendly message
+    first_name = customer_name.split()[0] if customer_name else "there"
+    message = f"Hey {first_name}! One of the contractors asked: \"{question}\" - can you let me know?"
+
+    # Send the SMS
+    await send_sms_reply(service_request_id, to_phone, message)
+
+    # Update pending question status if ID provided
+    if pending_question_id:
+        supabase.table("pending_questions").update({
+            "status": "asked",
+            "asked_at": datetime.utcnow().isoformat()
+        }).eq("id", pending_question_id).execute()
+
+    return {"status": "ok", "message": "SMS sent to homeowner"}
+
+
+async def trigger_contractor_reply(pending_question_id: str, question: str, answer: str):
+    """
+    Call the Node.js endpoint to send a reply email to the contractor.
+    """
+    supabase = get_supabase()
+
+    # Get the pending question with related email info
+    pq_result = supabase.table("pending_questions").select(
+        "*, inbound_emails(*), service_requests(*)"
+    ).eq("id", pending_question_id).single().execute()
+
+    if not pq_result.data:
+        print(f"Could not find pending question: {pending_question_id}")
+        return
+
+    pq = pq_result.data
+    email = pq.get("inbound_emails")
+    service_request = pq.get("service_requests")
+
+    if not email:
+        print(f"No inbound email found for pending question: {pending_question_id}")
+        return
+
+    # Call the Node.js reply endpoint
+    api_base = os.getenv("VERCEL_URL", "https://quinn-oimo.vercel.app")
+    if not api_base.startswith("http"):
+        api_base = f"https://{api_base}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{api_base}/api/reply-to-contractor",
+                json={
+                    "pending_question_id": pending_question_id,
+                    "original_email": {
+                        "id": email.get("id"),
+                        "sender": email.get("sender"),
+                        "recipient": email.get("recipient"),
+                        "subject": email.get("subject"),
+                    },
+                    "question": question,
+                    "answer": answer,
+                    "service_request": {
+                        "service_type": service_request.get("service_type"),
+                        "caller_name": service_request.get("caller_name"),
+                    }
+                }
+            )
+
+            if response.status_code == 200:
+                # Update pending question to replied
+                supabase.table("pending_questions").update({
+                    "status": "replied"
+                }).eq("id", pending_question_id).execute()
+                print(f"Successfully replied to contractor for question: {pending_question_id}")
+            else:
+                print(f"Failed to reply to contractor: {response.text}")
+
+    except Exception as e:
+        print(f"Error triggering contractor reply: {e}")
 
 def generate_sms_response(service_request: dict, history: list, user_message: str) -> str:
     """Generate a context-aware SMS response using Groq."""
@@ -670,6 +804,8 @@ async def submit_forms(request_id: str):
                         "businessId": business["id"],
                         "businessName": business["business_name"],
                         "website": business["website"],
+                        "trackingToken": service_request.get("tracking_token"),
+                        "additionalContext": service_request.get("additional_context") or [],
                         "serviceRequest": {
                             "customerName": service_request.get("caller_name", "Customer"),
                             "serviceType": service_request.get("service_type", "home service"),

@@ -62,12 +62,17 @@ module.exports = async function handler(req, res) {
   }
 
   const body = req.body;
-  const { businessId, businessName, website, serviceRequest, trackingToken } = body || {};
+  const { businessId, businessName, website, serviceRequest, trackingToken, additionalContext } = body || {};
 
   if (!website || !serviceRequest) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
+
+  // Format additional context from prior follow-up questions
+  const contextDetails = (additionalContext || [])
+    .map(ctx => `- ${ctx.question}: ${ctx.answer}`)
+    .join('\n');
 
   // Generate unique email for this request
   // If trackingToken provided, use it for routing responses back to the right request
@@ -141,6 +146,11 @@ module.exports = async function handler(req, res) {
       },
     });
 
+    // Build additional details section if we have follow-up context
+    const additionalDetailsSection = contextDetails
+      ? `\nADDITIONAL DETAILS (from follow-up questions):\n${contextDetails}\n`
+      : '';
+
     // Execute the form-filling task
     const result = await agent.execute(
       `Fill out this service request form for a plumbing company.
@@ -154,13 +164,14 @@ CUSTOMER INFORMATION:
 - City: ${customerData.city}
 - Postal Code: ${customerData.postalCode}
 - Service Needed: ${customerData.description}
-
+${additionalDetailsSection}
 INSTRUCTIONS:
 1. Navigate through any multi-step forms by clicking "Next", "Continue", or similar buttons
 2. If there are service type options (checkboxes, radio buttons, dropdowns), select the one that best matches "${customerData.description}"
 3. Fill in all contact information fields (name, email, phone, address) with the customer data above
-4. IMPORTANT: Do NOT click the final "Submit" button - stop after filling all fields
-5. If you encounter a popup or modal, interact with it appropriately
+4. If the form asks for additional details that match the ADDITIONAL DETAILS above, use that information
+5. IMPORTANT: Do NOT click the final "Submit" button - stop after filling all fields
+6. If you encounter a popup or modal, interact with it appropriately
 
 Complete the task when all contact fields are filled. Do not submit the form.`,
       {
