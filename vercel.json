@@ -20,7 +20,7 @@
       "use": "@vercel/node"
     },
     {
-      "src": "api/inbound-email.js",
+      "src": "api/inbound-email.mjs",
       "use": "@vercel/node"
     },
     {
@@ -39,7 +39,7 @@
     },
     {
       "src": "/api/inbound-email",
-      "dest": "api/inbound-email.js"
+      "dest": "api/inbound-email.mjs"
     },
     {
       "src": "/api/reply-to-contractor",
