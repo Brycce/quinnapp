@@ -112,11 +112,12 @@ module.exports = async function handler(req, res) {
     await stagehand.init();
     trace.milestone('stagehand_initialized');
 
-    const page = stagehand.page;
+    // In Stagehand v3, page is accessed via context.pages()[0]
+    const page = stagehand.context.pages()[0];
 
     // Navigate to the business website
     trace.milestone('navigating', { url: website });
-    await page.goto(website, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.goto(website);
     trace.milestone('page_loaded', { url: page.url() });
 
     // Use Stagehand's native agent for autonomous form filling
