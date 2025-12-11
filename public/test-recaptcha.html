@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>reCAPTCHA Test Form</title>
+  <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 500px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .form-container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      margin-top: 0;
+      color: #333;
+      font-size: 24px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #555;
+    }
+    input[type="text"],
+    input[type="email"],
+    textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #4285f4;
+    }
+    textarea {
+      height: 100px;
+      resize: vertical;
+    }
+    .g-recaptcha {
+      margin-bottom: 20px;
+    }
+    button {
+      background: #4285f4;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:hover {
+      background: #3367d6;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 4px;
+      display: none;
+    }
+    .result.success {
+      background: #d4edda;
+      color: #155724;
+      display: block;
+    }
+    .result.error {
+      background: #f8d7da;
+      color: #721c24;
+      display: block;
+    }
+    .note {
+      margin-top: 20px;
+      padding: 10px;
+      background: #fff3cd;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #856404;
+    }
+  </style>
+</head>
+<body>
+  <div class="form-container">
+    <h1>reCAPTCHA Test Form</h1>
+
+    <form id="testForm" action="#" method="POST">
+      <div class="form-group">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" value="John Smith" required>
+      </div>
+
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="test@example.com" required>
+      </div>
+
+      <div class="form-group">
+        <label for="message">Message</label>
+        <textarea id="message" name="message">This is a test submission to verify reCAPTCHA handling.</textarea>
+      </div>
+
+      <!-- reCAPTCHA v2 checkbox -->
+      <!-- Replace YOUR_SITE_KEY with your actual reCAPTCHA site key -->
+      <div class="g-recaptcha" data-sitekey="6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"></div>
+
+      <button type="submit">Submit Form</button>
+    </form>
+
+    <div id="result" class="result"></div>
+
+    <div class="note">
+      <strong>Note:</strong> This form uses Google's test reCAPTCHA key which always passes.
+      For production, replace the site key with your own from
+      <a href="https://www.google.com/recaptcha/admin" target="_blank">Google reCAPTCHA Admin</a>.
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('testForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+
+      const resultDiv = document.getElementById('result');
+      const recaptchaResponse = grecaptcha.getResponse();
+
+      if (!recaptchaResponse) {
+        resultDiv.className = 'result error';
+        resultDiv.textContent = 'Please complete the reCAPTCHA challenge.';
+        return;
+      }
+
+      // Collect form data
+      const formData = {
+        name: document.getElementById('name').value,
+        email: document.getElementById('email').value,
+        message: document.getElementById('message').value,
+        recaptchaToken: recaptchaResponse
+      };
+
+      resultDiv.className = 'result success';
+      resultDiv.innerHTML = `
+        <strong>Form submitted successfully!</strong><br><br>
+        <strong>Form Data:</strong><br>
+        Name: ${formData.name}<br>
+        Email: ${formData.email}<br>
+        Message: ${formData.message}<br><br>
+        <strong>reCAPTCHA Token:</strong><br>
+        <code style="word-break: break-all; font-size: 12px;">${recaptchaResponse.substring(0, 50)}...</code>
+      `;
+
+      // Reset reCAPTCHA
+      grecaptcha.reset();
+    });
+  </script>
+</body>
+</html>
