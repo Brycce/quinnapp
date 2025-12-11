@@ -9,7 +9,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// Initialize Groq only if API key is available
+const groq = process.env.GROQ_API_KEY
+  ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+  : null;
 
 // Initialize Mailgun for sending replies
 const mailgun = new Mailgun(formData);
@@ -21,6 +24,11 @@ const mg = process.env.MAILGUN_API_KEY
  * Analyze contractor email using Groq LLM to detect questions vs quotes
  */
 async function analyzeContractorEmail(emailData, serviceRequest) {
+  if (!groq) {
+    console.warn("Groq not configured - skipping email analysis");
+    return { type: "general", summary: "Email analysis not available" };
+  }
+
   const additionalContext = serviceRequest?.additional_context || [];
 
   const prompt = `Analyze this contractor email response to a service request.
