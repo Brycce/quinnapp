@@ -98,7 +98,7 @@ module.exports = async function handler(req, res) {
       apiKey: process.env.BROWSERBASE_API_KEY,
       projectId: process.env.BROWSERBASE_PROJECT_ID,
       enableCaching: false,
-      verbose: 0,
+      disablePino: true,
       modelName: "gpt-4o",
       modelClientOptions: {
         apiKey: process.env.OPENAI_API_KEY,
