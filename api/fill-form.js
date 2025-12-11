@@ -48,6 +48,7 @@ module.exports = async function handler(req, res) {
   if (req.method === "GET") {
     res.status(200).json({
       status: "ok",
+      hasOpenAIKey: !!process.env.OPENAI_API_KEY,
       hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
       hasBrowserbaseKey: !!process.env.BROWSERBASE_API_KEY,
       hasBrowserbaseProject: !!process.env.BROWSERBASE_PROJECT_ID,
