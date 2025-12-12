@@ -26,6 +26,10 @@
     {
       "src": "api/reply-to-contractor.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "api/notify-contractor-selected.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -44,6 +48,10 @@
     {
       "src": "/api/reply-to-contractor",
       "dest": "api/reply-to-contractor.js"
+    },
+    {
+      "src": "/api/notify-contractor-selected",
+      "dest": "api/notify-contractor-selected.js"
     },
     {
       "src": "/webhook/(.*)",

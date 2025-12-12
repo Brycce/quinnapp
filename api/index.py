@@ -282,6 +282,12 @@ async def twilio_incoming_sms(request: Request):
             # Confirm to homeowner
             response_text = "Got it, thanks! I'll let the contractor know."
             await send_sms_reply(request_id, from_phone, response_text)
+
+        # Check if we have presented quotes waiting for selection
+        elif service_request.get("quotes_presented_at") and not service_request.get("selected_quote_id"):
+            # Homeowner might be selecting a contractor
+            await handle_quote_selection(service_request, message_body, from_phone)
+
         else:
             # No pending question - regular conversation flow
             # Get conversation history
@@ -298,6 +304,36 @@ async def twilio_incoming_sms(request: Request):
     # Return TwiML response
     twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
     return Response(content=twiml, media_type="application/xml")
+
+
+@app.post("/api/send-quotes-sms")
+async def send_quotes_sms(request: Request):
+    """
+    Send quotes summary SMS to homeowner.
+    Called from inbound-email.js when quotes are ready to present.
+    """
+    payload = await request.json()
+    service_request_id = payload.get("service_request_id")
+    to_phone = payload.get("to_phone")
+    message = payload.get("message")
+    quote_ids = payload.get("quote_ids", [])
+
+    if not all([service_request_id, to_phone, message]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+
+    supabase = get_supabase()
+
+    # Send the SMS
+    await send_sms_reply(service_request_id, to_phone, message)
+
+    # Mark quotes as presented
+    if quote_ids:
+        supabase.table("quotes").update({
+            "status": "presented",
+            "presented_at": datetime.utcnow().isoformat()
+        }).in_("id", quote_ids).execute()
+
+    return {"status": "ok", "message": "Quotes SMS sent to homeowner"}
 
 
 @app.post("/api/trigger-question-sms")
@@ -333,6 +369,180 @@ async def trigger_question_sms(request: Request):
         }).eq("id", pending_question_id).execute()
 
     return {"status": "ok", "message": "SMS sent to homeowner"}
+
+
+async def handle_quote_selection(service_request: dict, message_body: str, from_phone: str):
+    """
+    Use LLM to interpret which contractor the homeowner selected from the presented quotes.
+    """
+    supabase = get_supabase()
+    request_id = service_request["id"]
+
+    # Get presented quotes with business names
+    quotes_result = supabase.table("quotes").select(
+        "*, discovered_businesses(id, business_name, phone, email)"
+    ).eq("service_request_id", request_id).eq("status", "presented").execute()
+
+    if not quotes_result.data:
+        # No quotes to select from - fall back to regular conversation
+        response_text = "I'm not sure which contractor you're referring to. Could you clarify?"
+        await send_sms_reply(request_id, from_phone, response_text)
+        return
+
+    quotes = quotes_result.data
+
+    # Build contractor list for LLM
+    contractor_list = []
+    for q in quotes:
+        biz = q.get("discovered_businesses") or {}
+        contractor_list.append({
+            "quote_id": q["id"],
+            "business_name": biz.get("business_name", "Unknown"),
+            "price": q.get("price_estimate", "price not specified"),
+            "availability": q.get("availability", "availability not specified")
+        })
+
+    # Use LLM to determine which contractor was selected
+    try:
+        groq = OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1"
+        )
+
+        contractor_desc = "\n".join([
+            f"- {c['business_name']}: {c['price']}, {c['availability']}"
+            for c in contractor_list
+        ])
+
+        response = groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You help identify which contractor a homeowner selected based on their message.
+Return JSON only: {"selected_index": number or null, "confidence": "high" | "medium" | "low", "reason": "brief explanation"}
+- selected_index is 0-based index into the contractor list, or null if unclear
+- Use high confidence for direct mentions of business name
+- Use medium confidence for clear indirect references (e.g., "the cheap one", "first one")
+- Use low confidence if very ambiguous"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""Contractors presented to homeowner:
+{contractor_desc}
+
+Homeowner's response: "{message_body}"
+
+Which contractor did they select?"""
+                }
+            ],
+            temperature=0.1,
+            max_tokens=200
+        )
+
+        result_text = response.choices[0].message.content.strip()
+        if result_text.startswith("```"):
+            result_text = "\n".join(result_text.split("\n")[1:-1])
+
+        selection = json.loads(result_text)
+        selected_index = selection.get("selected_index")
+        confidence = selection.get("confidence", "low")
+
+        if selected_index is not None and 0 <= selected_index < len(contractor_list):
+            selected = contractor_list[selected_index]
+            selected_quote = next((q for q in quotes if q["id"] == selected["quote_id"]), None)
+
+            if selected_quote and confidence in ["high", "medium"]:
+                # Mark quote as selected
+                await finalize_quote_selection(service_request, selected_quote, from_phone)
+                return
+
+        # Couldn't determine selection - ask for clarification
+        response_text = "I wasn't quite sure which contractor you meant. Could you tell me the name of the one you'd like to go with?"
+        await send_sms_reply(request_id, from_phone, response_text)
+
+    except Exception as e:
+        print(f"Error in quote selection LLM: {e}")
+        response_text = "Sorry, I had trouble understanding. Which contractor would you like to go with? Just reply with their name."
+        await send_sms_reply(request_id, from_phone, response_text)
+
+
+async def finalize_quote_selection(service_request: dict, selected_quote: dict, from_phone: str):
+    """
+    Finalize the quote selection - update DB, notify homeowner, and email contractor.
+    """
+    supabase = get_supabase()
+    request_id = service_request["id"]
+
+    business = selected_quote.get("discovered_businesses") or {}
+    business_name = business.get("business_name", "the contractor")
+    business_email = business.get("email")
+    business_phone = business.get("phone")
+
+    # Update quote status to selected
+    supabase.table("quotes").update({
+        "status": "selected",
+        "selected_at": datetime.utcnow().isoformat()
+    }).eq("id", selected_quote["id"]).execute()
+
+    # Update other quotes to rejected
+    supabase.table("quotes").update({
+        "status": "rejected"
+    }).eq("service_request_id", request_id).eq("status", "presented").execute()
+
+    # Update service request with selected quote
+    supabase.table("service_requests").update({
+        "selected_quote_id": selected_quote["id"],
+        "status": "contractor_selected"
+    }).eq("id", request_id).execute()
+
+    # Confirm to homeowner
+    response_text = f"Great choice! I'll let {business_name} know you've selected them. They'll reach out to schedule."
+    await send_sms_reply(request_id, from_phone, response_text)
+
+    # Notify contractor via email
+    if business_email:
+        await notify_selected_contractor(service_request, selected_quote, business)
+    else:
+        print(f"No email for selected contractor {business_name} - manual follow-up needed")
+
+
+async def notify_selected_contractor(service_request: dict, quote: dict, business: dict):
+    """
+    Send email to selected contractor with homeowner's details.
+    """
+    api_base = os.getenv("VERCEL_URL", "https://quinn-oimo.vercel.app")
+    if not api_base.startswith("http"):
+        api_base = f"https://{api_base}"
+
+    customer_name = service_request.get("caller_name", "Customer")
+    customer_phone = service_request.get("caller_phone", "")
+    customer_address = service_request.get("caller_address") or service_request.get("zip_code", "")
+    service_type = service_request.get("service_type", "service")
+    description = service_request.get("description", "")
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await client.post(
+                f"{api_base}/api/notify-contractor-selected",
+                json={
+                    "contractor_email": business.get("email"),
+                    "contractor_name": business.get("business_name"),
+                    "tracking_token": service_request.get("tracking_token"),
+                    "customer_name": customer_name,
+                    "customer_phone": customer_phone,
+                    "customer_address": customer_address,
+                    "service_type": service_type,
+                    "description": description,
+                    "quote_details": {
+                        "price": quote.get("price_estimate"),
+                        "availability": quote.get("availability"),
+                    }
+                }
+            )
+        print(f"Notified contractor {business.get('business_name')} of selection")
+    except Exception as e:
+        print(f"Error notifying contractor: {e}")
 
 
 async def trigger_contractor_reply(pending_question_id: str, question: str, answer: str):

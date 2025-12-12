@@ -55,12 +55,19 @@ Your task:
    - Check if we can answer it from the context above
    - If answerable, provide the answer
 
+3. If it's a "quote":
+   - Extract the price or estimate (could be a number, range, or "starting at" amount)
+   - Extract their availability (when they can do the work)
+   - Provide a brief summary
+
 Respond ONLY with valid JSON (no markdown, no explanation):
 {
   "type": "question" | "quote" | "general",
   "question": "string - the question being asked (only if type is question)",
   "canAnswer": boolean - true if we have the info to answer (only if type is question),
   "answer": "string - the answer to provide (only if canAnswer is true)",
+  "priceEstimate": "string - the price/estimate like '$150' or '$150-200' (only if type is quote)",
+  "availability": "string - when they can do the work like 'available tomorrow' or 'this week' (only if type is quote)",
   "summary": "string - brief summary of what the contractor said"
 }`;
 
@@ -194,9 +201,9 @@ async function triggerHomeownerQuestion(serviceRequestId, question, inboundEmail
 }
 
 /**
- * Handle quote received - update status and notify homeowner
+ * Handle quote received - store quote and check if we should notify homeowner
  */
-async function handleQuoteReceived(email, serviceRequestId, analysis) {
+async function handleQuoteReceived(email, serviceRequestId, analysis, serviceRequest) {
   // Update discovered business status if we have a match
   if (email.discovered_business_id) {
     await supabase
@@ -211,8 +218,149 @@ async function handleQuoteReceived(email, serviceRequestId, analysis) {
     .update({ status: "quote_received" })
     .eq("id", email.id);
 
-  console.log("Quote received from contractor:", email.sender);
-  // Future: Send notification SMS to homeowner about the quote
+  // Store the quote with extracted details
+  const { data: quote, error: quoteError } = await supabase
+    .from("quotes")
+    .insert({
+      service_request_id: serviceRequestId,
+      discovered_business_id: email.discovered_business_id,
+      inbound_email_id: email.id,
+      price_estimate: analysis.priceEstimate || null,
+      availability: analysis.availability || null,
+      summary: analysis.summary || null,
+      raw_quote_text: email.stripped_text || email.body_plain,
+      status: "pending",
+    })
+    .select()
+    .single();
+
+  if (quoteError) {
+    console.error("Error storing quote:", quoteError);
+  } else {
+    console.log("Quote stored:", quote.id, {
+      price: analysis.priceEstimate,
+      availability: analysis.availability,
+    });
+  }
+
+  // Check if we should trigger the quotes SMS to homeowner
+  await checkQuoteTrigger(serviceRequestId, serviceRequest);
+}
+
+/**
+ * Check if we should send quotes to homeowner (5 quotes or 24hrs elapsed)
+ */
+async function checkQuoteTrigger(serviceRequestId, serviceRequest) {
+  // Get count of pending quotes
+  const { data: quotes, error } = await supabase
+    .from("quotes")
+    .select("id, price_estimate, availability, summary, discovered_business_id")
+    .eq("service_request_id", serviceRequestId)
+    .eq("status", "pending");
+
+  if (error || !quotes) {
+    console.error("Error fetching quotes:", error);
+    return;
+  }
+
+  // Check if quotes were already presented
+  if (serviceRequest.quotes_presented_at) {
+    console.log("Quotes already presented to homeowner");
+    return;
+  }
+
+  const quoteCount = quotes.length;
+  const outreachStarted = serviceRequest.outreach_started_at
+    ? new Date(serviceRequest.outreach_started_at)
+    : null;
+  const hoursSinceOutreach = outreachStarted
+    ? (Date.now() - outreachStarted.getTime()) / (1000 * 60 * 60)
+    : 0;
+
+  console.log(`Quote check: ${quoteCount} quotes, ${hoursSinceOutreach.toFixed(1)} hours since outreach`);
+
+  // Trigger if 5+ quotes OR (24+ hours AND at least 1 quote)
+  if (quoteCount >= 5 || (hoursSinceOutreach >= 24 && quoteCount >= 1)) {
+    console.log("Triggering quote presentation to homeowner");
+    await sendQuotesToHomeowner(serviceRequestId, serviceRequest, quotes);
+  }
+}
+
+/**
+ * Send quotes SMS to homeowner
+ */
+async function sendQuotesToHomeowner(serviceRequestId, serviceRequest, quotes) {
+  if (!serviceRequest.caller_phone) {
+    console.error("No phone number for homeowner");
+    return;
+  }
+
+  // Get business names for each quote
+  const businessIds = quotes.map((q) => q.discovered_business_id).filter(Boolean);
+  const { data: businesses } = await supabase
+    .from("discovered_businesses")
+    .select("id, business_name")
+    .in("id", businessIds);
+
+  const businessMap = {};
+  businesses?.forEach((b) => {
+    businessMap[b.id] = b.business_name;
+  });
+
+  // Build quote list for SMS
+  const quoteLines = quotes.map((q) => {
+    const name = businessMap[q.discovered_business_id] || "A contractor";
+    const price = q.price_estimate || "price TBD";
+    const avail = q.availability || "availability TBD";
+    return `- ${name}: ${price}, ${avail}`;
+  });
+
+  const customerName = serviceRequest.caller_name?.split(" ")[0] || "there";
+  const serviceType = serviceRequest.service_type || "your service request";
+
+  const message = `Hey ${customerName}! Got ${quotes.length} quote${quotes.length > 1 ? "s" : ""} for ${serviceType}:
+
+${quoteLines.join("\n")}
+
+Which one works for you?`;
+
+  // Call Python backend to send SMS
+  const backendUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000";
+
+  try {
+    const response = await fetch(`${backendUrl}/api/send-quotes-sms`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service_request_id: serviceRequestId,
+        to_phone: serviceRequest.caller_phone,
+        message: message,
+        quote_ids: quotes.map((q) => q.id),
+      }),
+    });
+
+    if (response.ok) {
+      // Mark quotes as presented
+      await supabase
+        .from("quotes")
+        .update({ status: "presented", presented_at: new Date().toISOString() })
+        .in("id", quotes.map((q) => q.id));
+
+      // Update service request
+      await supabase
+        .from("service_requests")
+        .update({ quotes_presented_at: new Date().toISOString() })
+        .eq("id", serviceRequestId);
+
+      console.log("Sent quotes SMS to homeowner:", serviceRequest.caller_phone);
+    } else {
+      console.error("Failed to send quotes SMS:", await response.text());
+    }
+  } catch (error) {
+    console.error("Error sending quotes SMS:", error);
+  }
 }
 
 // Mailgun sends inbound emails as multipart/form-data POST requests
@@ -272,7 +420,7 @@ export default async function handler(req, res) {
     if (trackingToken) {
       const { data: sr } = await supabase
         .from("service_requests")
-        .select("id, service_type, description, caller_address, zip_code, caller_name, caller_phone, additional_context")
+        .select("id, service_type, description, caller_address, zip_code, caller_name, caller_phone, additional_context, outreach_started_at, quotes_presented_at")
         .eq("tracking_token", trackingToken)
         .single();
 
@@ -389,7 +537,7 @@ export default async function handler(req, res) {
             .eq("id", email.id);
         }
       } else if (analysisResult.type === "quote") {
-        await handleQuoteReceived(email, serviceRequestId, analysisResult);
+        await handleQuoteReceived(email, serviceRequestId, analysisResult, serviceRequest);
       }
     }
 
