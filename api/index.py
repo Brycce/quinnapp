@@ -1031,7 +1031,9 @@ async def submit_forms(request_id: str):
             supabase.table("discovered_businesses").update({
                 "form_submission_status": "completed" if result.get("success") else "failed",
                 "form_submission_result": result,
-                "contact_form_url": result.get("formUrl")
+                "contact_form_url": result.get("formUrl"),
+                "browserbase_session_id": result.get("browserbaseSessionId"),
+                "browserbase_replay_url": result.get("browserbaseReplayUrl")
             }).eq("id", business["id"]).execute()
 
             results.append({

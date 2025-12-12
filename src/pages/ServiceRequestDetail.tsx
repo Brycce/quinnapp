@@ -173,7 +173,7 @@ export function ServiceRequestDetail() {
                     <TableHead>Phone</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Website</TableHead>
-                    <TableHead>Address</TableHead>
+                    <TableHead>Form Status</TableHead>
                     <TableHead>Rating</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -224,8 +224,48 @@ export function ServiceRequestDetail() {
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="max-w-xs truncate">
-                        {biz.full_address || '-'}
+                      <TableCell>
+                        {biz.form_submission_status === 'completed' && (
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-green-100 text-green-800">Success</Badge>
+                            {biz.browserbase_replay_url && (
+                              <a
+                                href={biz.browserbase_replay_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline text-xs"
+                              >
+                                Replay
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {biz.form_submission_status === 'failed' && (
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-red-100 text-red-800">Failed</Badge>
+                            {biz.browserbase_replay_url && (
+                              <a
+                                href={biz.browserbase_replay_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline text-xs"
+                              >
+                                Replay
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {biz.form_submission_status === 'in_progress' && (
+                          <Badge className="bg-blue-100 text-blue-800">Running...</Badge>
+                        )}
+                        {biz.form_submission_status === 'pending' && (
+                          <span className="text-gray-400 text-sm">
+                            {biz.email ? 'Has email' : 'Pending'}
+                          </span>
+                        )}
+                        {!biz.form_submission_status && (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {biz.rating ? (

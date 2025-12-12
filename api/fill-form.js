@@ -124,7 +124,10 @@ module.exports = async function handler(req, res) {
     });
 
     await stagehand.init();
-    trace.milestone('stagehand_initialized');
+
+    // Capture Browserbase session ID for replay links
+    const browserbaseSessionId = stagehand.browserbaseSessionID;
+    trace.milestone('stagehand_initialized', { browserbaseSessionId });
 
     // In Stagehand v3, page is accessed via context.pages()[0]
     const page = stagehand.context.pages()[0];
@@ -201,6 +204,10 @@ Complete the task when all contact fields are filled. Do not submit the form.`,
       businessId,
       message: `Form filling completed for ${businessName}`,
       formUrl: currentUrl,
+      browserbaseSessionId,
+      browserbaseReplayUrl: browserbaseSessionId
+        ? `https://www.browserbase.com/sessions/${browserbaseSessionId}`
+        : null,
       agentResult: {
         success: result.success,
         message: result.message,
@@ -211,6 +218,9 @@ Complete the task when all contact fields are filled. Do not submit the form.`,
     });
 
   } catch (error) {
+    // Try to get session ID even on error for debugging
+    const errorSessionId = stagehand?.browserbaseSessionID;
+
     if (stagehand) {
       try {
         await stagehand.close();
@@ -224,6 +234,10 @@ Complete the task when all contact fields are filled. Do not submit the form.`,
       success: false,
       businessId,
       message: error.message || "Form filling failed",
+      browserbaseSessionId: errorSessionId,
+      browserbaseReplayUrl: errorSessionId
+        ? `https://www.browserbase.com/sessions/${errorSessionId}`
+        : null,
       trace: trace.getTrace(),
     });
   }

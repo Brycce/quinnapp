@@ -30,6 +30,9 @@ export interface DiscoveredBusiness {
   contact_extraction_status: string;
   outreach_status: string;
   outreach_notes: string | null;
+  form_submission_status: string | null;
+  browserbase_session_id: string | null;
+  browserbase_replay_url: string | null;
   created_at: string;
 }
 
