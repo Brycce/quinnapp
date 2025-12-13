@@ -759,13 +759,31 @@ async def run_business_discovery(service_request_id: str, service_type: str, loc
             "handyman": "handyman services",
         }
 
-        search_term = service_type.lower() if service_type else "home services"
-        for key, value in service_map.items():
-            if key in search_term:
-                search_term = value
-                break
+        # Use service_type if available, otherwise try to extract from description
+        search_term = None
+        if service_type:
+            search_term = service_type.lower()
+            # Check if we have a mapping for common home services
+            for key, value in service_map.items():
+                if key in search_term:
+                    search_term = value
+                    break
+
+        # If no service_type, use the description directly as the search term
+        # This handles non-standard requests like "ice cream truck" or "caterer"
+        if not search_term:
+            # Get description from the service request
+            sr_result = supabase.table("service_requests").select("description").eq("id", service_request_id).single().execute()
+            description = sr_result.data.get("description", "") if sr_result.data else ""
+
+            if description:
+                # Use description as search term (the API will find relevant businesses)
+                search_term = description
+            else:
+                search_term = "home services"  # Last resort fallback
 
         search_query = f"{search_term} near {location}"
+        print(f"Business discovery search query: {search_query}")
 
         # Detect region: Canadian postal codes start with a letter (e.g., V8T 4G8)
         region = "us"
