@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Send } from 'lucide-react';
 
 const exampleProjects = [
@@ -13,7 +13,6 @@ export function Landing() {
   const [projectDescription, setProjectDescription] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const quinnPhoneNumber = '+1 (480) 569-1254';
   const quinnPhoneLink = 'tel:+14805691254';
@@ -71,26 +70,35 @@ export function Landing() {
 
           {/* Step 1: Project Description */}
           {step === 'describe' && (
-            <div className="max-w-2xl mx-auto mb-16 md:mb-20">
-              <div className="flex gap-2 md:gap-3 items-center mb-4">
-                <input
-                  ref={inputRef}
-                  type="text"
+            <div className="max-w-2xl mx-auto mb-12 md:mb-16">
+              {/* Textarea Box */}
+              <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-4 md:p-6 mb-6">
+                <textarea
                   value={projectDescription}
                   onChange={(e) => setProjectDescription(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleDescriptionSubmit()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleDescriptionSubmit();
+                    }
+                  }}
                   placeholder="Describe your project..."
-                  className="flex-1 px-5 md:px-6 py-4 md:py-5 rounded-full border border-gray-200 focus:outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100 transition-all bg-white/80 backdrop-blur-sm text-base md:text-lg shadow-lg"
+                  rows={3}
+                  className="w-full resize-none border-0 focus:outline-none focus:ring-0 text-base md:text-lg text-gray-900 placeholder-gray-400 bg-transparent"
                 />
-                <button
-                  onClick={handleDescriptionSubmit}
-                  disabled={!projectDescription.trim()}
-                  className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white flex items-center justify-center hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 shadow-lg hover:shadow-xl"
-                >
-                  <Send className="w-5 h-5 md:w-6 md:h-6" />
-                </button>
+                <div className="flex justify-end mt-2">
+                  <button
+                    onClick={handleDescriptionSubmit}
+                    disabled={!projectDescription.trim()}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium flex items-center gap-2 hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Get Quotes
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
+              {/* Example prompts */}
               <div className="overflow-x-auto -mx-4 px-4">
                 <div className="flex gap-2 w-max mx-auto">
                   {exampleProjects.map((suggestion) => (
@@ -107,50 +115,37 @@ export function Landing() {
                   ))}
                 </div>
               </div>
+
+              {/* Benefits */}
+              <div className="text-center text-sm md:text-base text-gray-500 mt-12">
+                Free • Multiple quotes • Top-rated pros only • 24-hour response
+              </div>
             </div>
           )}
 
           {/* Step 2: Phone Number */}
           {step === 'phone' && (
-            <div className="max-w-2xl mx-auto mb-16 md:mb-20">
-              <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 p-6 mb-6">
-                <p className="text-gray-500 text-sm mb-2">Your project:</p>
-                <p className="text-gray-900 font-medium mb-4">{projectDescription}</p>
-                <button
-                  type="button"
-                  onClick={() => setStep('describe')}
-                  className="text-blue-600 text-sm hover:underline"
-                >
-                  Edit
-                </button>
-              </div>
-
-              <div className="flex gap-2 md:gap-3 items-center mb-4">
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handlePhoneSubmit()}
-                  placeholder="Enter your phone number..."
-                  className="flex-1 px-5 md:px-6 py-4 md:py-5 rounded-full border border-gray-200 focus:outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100 transition-all bg-white/80 backdrop-blur-sm text-base md:text-lg shadow-lg"
-                />
-                <button
-                  onClick={handlePhoneSubmit}
-                  disabled={!phoneNumber.trim() || isSubmitting}
-                  className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white flex items-center justify-center hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 shadow-lg hover:shadow-xl"
-                >
-                  {isSubmitting ? (
-                    <svg className="animate-spin w-5 h-5 md:w-6 md:h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  ) : (
-                    <Send className="w-5 h-5 md:w-6 md:h-6" />
-                  )}
-                </button>
-              </div>
-
-              <p className="text-gray-500 text-sm">
+            <div className="max-w-md mx-auto mb-16 md:mb-20">
+              <label className="block text-gray-700 font-medium mb-3 text-lg">
+                What's your phone number?
+              </label>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handlePhoneSubmit()}
+                placeholder="(555) 123-4567"
+                autoFocus
+                className="w-full px-5 py-4 rounded-xl border border-gray-300 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all bg-white text-lg text-center mb-4"
+              />
+              <button
+                onClick={handlePhoneSubmit}
+                disabled={!phoneNumber.trim() || isSubmitting}
+                className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold text-lg hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
+              >
+                {isSubmitting ? 'Sending...' : 'Get My Quotes'}
+              </button>
+              <p className="text-gray-500 text-sm mt-4">
                 We'll text you within minutes to get started.
               </p>
             </div>
@@ -186,13 +181,6 @@ export function Landing() {
               >
                 Submit another project
               </button>
-            </div>
-          )}
-
-          {/* Simple benefits - only show on describe step */}
-          {step === 'describe' && (
-            <div className="text-center text-sm md:text-base text-gray-500 px-4">
-              Free • Multiple quotes • Top-rated pros only • 24-hour response
             </div>
           )}
         </div>
